@@ -129,7 +129,7 @@
             const isActive = scheduleState.selectedCategory === cat.id;
             html += `
                 <button type="button" class="pill ${isActive ? 'active' : ''}" data-cat="${escapeHtml(cat.id)}">
-                    <span style="width: 8px; height: 8px; border-radius: 50%; background: ${cat.color}; display: inline-block; margin-right: 4px;"></span>
+                    <span style="width: 8px; height: 8px; border-radius: 50%; background: ${escapeHtml(cat.color)}; display: inline-block; margin-right: 4px;"></span>
                     ${escapeHtml(cat.icon || '📌')} ${escapeHtml(cat.name)}
                 </button>
             `;
@@ -160,7 +160,7 @@
             const isActive = currentVal === cat.id;
             html += `
                 <button type="button" class="pill ${isActive ? 'active' : ''}" data-cat="${escapeHtml(cat.id)}">
-                    <span style="width: 8px; height: 8px; border-radius: 50%; background: ${cat.color}; display: inline-block; margin-right: 4px;"></span>
+                    <span style="width: 8px; height: 8px; border-radius: 50%; background: ${escapeHtml(cat.color)}; display: inline-block; margin-right: 4px;"></span>
                     ${escapeHtml(cat.icon || '📌')} ${escapeHtml(cat.name)}
                 </button>
             `;
@@ -189,8 +189,8 @@
                         <input type="text" class="form-input manage-cat-name-input" value="${escapeHtml(cat.name)}" placeholder="Nombre de categoría" title="Haz clic para editar nombre">
                     </div>
                     <div class="manage-cat-color-wrap">
-                        <input type="color" class="manage-cat-color-input" value="${cat.color}" title="Cambiar color">
-                        <span class="cat-hex-label" style="font-size: 11px; font-family: monospace; color: var(--text-muted);">${cat.color}</span>
+                        <input type="color" class="manage-cat-color-input" value="${escapeHtml(cat.color)}" title="Cambiar color">
+                        <span class="cat-hex-label" style="font-size: 11px; font-family: monospace; color: var(--text-muted);">${escapeHtml(cat.color)}</span>
                     </div>
                     <div>
                         <button type="button" class="btn-cat-del" title="Eliminar categoría">✕</button>
@@ -532,10 +532,10 @@
             blocksHtml += `
                 <div class="schedule-block-card ${isCompact ? 'is-compact' : ''}"
                      data-block-id="${escapeHtml(block.id)}"
-                     style="top: ${top}px; height: ${height}px; --block-color: ${blockColor};"
-                     title="${escapeHtml(block.title)} (${block.start_time} - ${block.end_time})">
+                     style="top: ${top}px; height: ${height}px; --block-color: ${escapeHtml(blockColor)};"
+                     title="${escapeHtml(block.title)} (${escapeHtml(block.start_time)} - ${escapeHtml(block.end_time)})">
                     <div class="schedule-block-top">
-                        <span class="schedule-block-time">${block.start_time} - ${block.end_time} (${durationText})</span>
+                        <span class="schedule-block-time">${escapeHtml(block.start_time)} - ${escapeHtml(block.end_time)} (${durationText})</span>
                         <div class="schedule-block-actions">
                             <button type="button" class="btn-block-action edit" data-action="edit" title="Editar bloque">✏️</button>
                             <button type="button" class="btn-block-action delete" data-action="delete" title="Eliminar bloque">✕</button>
@@ -544,7 +544,7 @@
                     <div class="schedule-block-title">${escapeHtml(block.title)}</div>
                     ${!isCompact ? `
                         <div class="schedule-block-meta">
-                            <span class="schedule-block-tag" style="border-left: 2px solid ${blockColor};">
+                            <span class="schedule-block-tag" style="border-left: 2px solid ${escapeHtml(blockColor)};">
                                 ${escapeHtml(catInfo.icon ? catInfo.icon + ' ' : '')}${escapeHtml(catInfo.name)}
                             </span>
                         </div>
@@ -1164,7 +1164,8 @@
        Utilities
        ------------------------------------------------------------------------- */
     function escapeHtml(str) {
-        if (!str) return '';
+        // Keep 0 / false visible: only null and undefined become ''.
+        if (str === null || str === undefined) return '';
         return String(str)
             .replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')

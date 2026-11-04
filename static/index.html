@@ -9,10 +9,10 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&family=Montserrat:wght@700;800;900&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/style.css?v=3.9.5">
+    <link rel="stylesheet" href="/static/style.css?v=3.9.6">
     <link rel="stylesheet" href="/static/logo_lab.css?v=1">
     <!-- Chart.js for Insights Visualizations -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js" integrity="sha384-dug+JxfBvklEQdJ4AYuBBAIScUz0bVN73xpy273gcAwHjb3qI0fXmuYNaNfdyYJG" crossorigin="anonymous"></script>
     <link rel="stylesheet" href="/static/api_usage.css?v=1">
 </head>
 <body>
@@ -1425,7 +1425,33 @@
                                         <div class="hook-card-title">"So in this new Game..."</div>
                                         <p class="hook-card-desc">Apertura directa a la acción sin logo de Steam, ideal para gameplay con subtítulos kinetic inmediatos.</p>
                                     </label>
+
+                                    <label class="promo-hook-card" id="labelPromoV3HookDirect" style="cursor: pointer;">
+                                        <input type="radio" name="promov3HookType" value="direct" style="display: none;">
+                                        <div class="hook-card-header">
+                                            <span class="hook-card-badge">🎯 Directo (sin entrada)</span>
+                                            <span class="hook-card-check">✓</span>
+                                        </div>
+                                        <div class="hook-card-title">Directo al punto fuerte</div>
+                                        <p class="hook-card-desc">Sin frase fija de apertura: las primeras palabras ya cuentan lo más llamativo del juego. Para campañas o canales que no piden la entrada de Steam.</p>
+                                    </label>
+
+                                    <label class="promo-hook-card" id="labelPromoV3HookCustom" style="cursor: pointer;">
+                                        <input type="radio" name="promov3HookType" value="custom" style="display: none;">
+                                        <div class="hook-card-header">
+                                            <span class="hook-card-badge">✍️ Entrada propia</span>
+                                            <span class="hook-card-check">✓</span>
+                                        </div>
+                                        <div class="hook-card-title">Tu frase de apertura</div>
+                                        <p class="hook-card-desc">El guion empezará exactamente con la frase que escribas (por ejemplo, la que exige una campaña).</p>
+                                    </label>
                                 </div>
+                                <div class="form-group" id="promov3OpeningTextGroup" style="display: none; margin-top: 10px; margin-bottom: 0;">
+                                    <label class="form-label" for="promov3OpeningText" style="font-weight: 600; font-size: 12.5px; margin-bottom: 6px;">✍️ Frase de entrada propia</label>
+                                    <input type="text" id="promov3OpeningText" class="form-input" maxlength="200" placeholder="Ej: Check out this brand new co-op game" style="font-size: 13px; padding: 9px 12px;">
+                                    <span style="font-size: 11px; color: var(--text-muted); margin-top: 4px; display: block;">El guion empezará exactamente con este texto. Escríbelo en el idioma de la locución.</span>
+                                </div>
+                                <p style="font-size: 11px; color: var(--text-muted); margin: 8px 0 0 0;">Por defecto se usa “Here's a new Steam game…” (la entrada que piden las campañas de Trapster). Las demás entradas son opcionales.</p>
                             </div>
                         </div>
 
@@ -1547,6 +1573,13 @@
                                         <span style="font-size: 11px; font-weight: 600; color: #94a3b8;">🎯 Estabilidad:</span>
                                         <input type="range" id="promov3VoiceStabilitySlider" min="0.00" max="1.00" step="0.05" value="0.50" style="width: 80px; height: 4px; accent-color: #fbbf24; cursor: pointer;">
                                         <span id="promov3VoiceStabilityVal" style="font-size: 11px; font-weight: 700; color: #fbbf24; min-width: 30px;">0.50</span>
+                                    </div>
+
+                                    <!-- Similarity Slider (ElevenLabs similarity_boost) -->
+                                    <div style="display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.25); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.08);" title="Parecido con la voz original (similarity_boost de ElevenLabs). 0.75 por defecto.">
+                                        <span style="font-size: 11px; font-weight: 600; color: #94a3b8;">🧬 Similitud:</span>
+                                        <input type="range" id="promov3VoiceSimilaritySlider" min="0.00" max="1.00" step="0.05" value="0.75" style="width: 80px; height: 4px; accent-color: #a78bfa; cursor: pointer;">
+                                        <span id="promov3VoiceSimilarityVal" style="font-size: 11px; font-weight: 700; color: #a78bfa; min-width: 30px;">0.75</span>
                                     </div>
 
                                     <button type="button" class="btn btn-primary" id="btnPromoV3SynthesizeVoice" style="font-size: 12px; padding: 5px 12px; background: linear-gradient(135deg, #0284c7, #38bdf8); border: none; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;">
@@ -1677,6 +1710,15 @@
                                         <div><strong>✂️ Cortes Limpios:</strong> Por defecto para mantener dinamismo.</div>
                                     </div>
                                 </div>
+                            </div>
+
+                            <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 12px;">
+                                <label for="promov3CutStartMode" style="font-size: 12.5px; font-weight: 600; color: var(--text-primary); margin: 0;">✂️ Inicio de cada corte:</label>
+                                <select id="promov3CutStartMode" style="font-size: 12.5px; padding: 6px 10px; border-radius: 6px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: var(--text-primary); cursor: pointer;">
+                                    <option value="shot_start" selected>Inicio del plano</option>
+                                    <option value="best_moment">Mejor momento del plano</option>
+                                </select>
+                                <span style="font-size: 11px; color: var(--text-muted);">«Mejor momento» salta fundidos, negros o arranques estáticos dentro del mismo plano (sin salirse de él). Si no hay datos fiables, usa el inicio del plano.</span>
                             </div>
 
                             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.06);">
@@ -2021,6 +2063,29 @@
                                     </div>
                                 </div>
 
+                                <!-- Audio master & output options (all optional; defaults = recommended) -->
+                                <div class="card form-card-nested" id="promov3RenderOutputOptions" style="padding: 16px; background: rgba(15, 23, 42, 0.55); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; margin-top: 14px; display: flex; flex-direction: column; gap: 6px;">
+                                    <label class="form-label" style="margin-bottom: 0; font-weight: 600; font-size: 13px;">🎚️ Audio final y salida</label>
+                                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12.5px; color: var(--text-primary); margin: 0;">
+                                        <input type="checkbox" id="promov3AudioNormalize" checked style="accent-color: #38bdf8; width: 16px; height: 16px;">
+                                        <span>Normalizar volumen (-14 LUFS)</span>
+                                    </label>
+                                    <span style="font-size: 11px; color: var(--text-muted); display: block; margin-top: 2px;">Deja el volumen final al nivel de TikTok, Reels y Shorts y evita picos (true peak -1 dBTP).</span>
+                                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12.5px; color: var(--text-primary); margin: 0;">
+                                        <input type="checkbox" id="promov3AudioDucking" checked style="accent-color: #38bdf8; width: 16px; height: 16px;">
+                                        <span>Bajar el juego cuando habla la voz (ducking)</span>
+                                    </label>
+                                    <span style="font-size: 11px; color: var(--text-muted); display: block; margin-top: 2px;">El volumen de gameplay sigue siendo el nivel base. Desactívalo para la mezcla de volumen fijo de siempre.</span>
+                                    <label style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-primary); margin: 0;">
+                                        <span>🎞️ FPS de salida:</span>
+                                        <select id="promov3OutputFps" style="font-size: 12.5px; padding: 6px 10px; border-radius: 6px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: var(--text-primary); cursor: pointer;">
+                                            <option value="30" selected>30 fps</option>
+                                            <option value="60">60 fps (si el metraje lo permite)</option>
+                                        </select>
+                                    </label>
+                                    <span style="font-size: 11px; color: var(--text-muted); display: block; margin-top: 2px;">60 fps solo se aplica si el vídeo original tiene 50 fps o más; si no, se renderiza a 30 fps y se avisa.</span>
+                                </div>
+
                                 <!-- 4. Mini Editor de SFX & Pistas de Audio (Interactive Timeline Widget) -->
                                 <div class="card form-card-nested" style="padding: 18px; background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(139, 92, 246, 0.35); border-radius: 12px; margin-top: 14px;">
                                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
@@ -2241,6 +2306,7 @@
                                             <div id="promov3DeliveryBadges" style="display: flex; flex-wrap: wrap; gap: 8px;">
                                                 <!-- Dynamic badges injected by JS -->
                                             </div>
+                                            <div id="promov3RenderWarnings" class="render-warnings-notice" role="status" aria-live="polite"></div>
                                         </div>
 
                                         <!-- Disk Output Path -->
@@ -2293,7 +2359,7 @@
                                             <button type="button" class="btn btn-secondary" id="btnPromoV3Rerender" style="font-size: 12px; padding: 6px 14px;">
                                                 <span>🔄</span> Re-renderizar Ajustes
                                             </button>
-                                            <button type="button" class="btn btn-success" id="btnPromoV3RemixSfx" style="font-size: 12px; padding: 7px 16px; font-weight: 700;">
+                                            <button type="button" class="btn btn-success" id="btnPromoV3RemixSfxDelivery" style="font-size: 12px; padding: 7px 16px; font-weight: 700;">
                                                 <span>⚡ Re-mezclar MP4 (1.5s)</span>
                                             </button>
                                         </div>
@@ -2729,6 +2795,17 @@
                             <input type="text" class="wizard-form-input" id="wizardGameGenre" placeholder="Ej: co-op survival · Vacío: la IA lo deduce del juego" />
                         </div>
 
+                        <div class="wizard-form-group" id="wizardHookTypeGroup" style="margin-top: 8px;">
+                            <label class="wizard-form-label" for="wizardHookType">🎣 Entrada del guion</label>
+                            <select class="wizard-form-input" id="wizardHookType">
+                                <option value="steam_new_game" selected>“Here's a new Steam game…” (por defecto · Trapster)</option>
+                                <option value="so_in_this_new_game">“So in this new game…”</option>
+                                <option value="direct">Directo (sin entrada)</option>
+                                <option value="custom">Entrada propia</option>
+                            </select>
+                            <input type="text" class="wizard-form-input" id="wizardOpeningText" maxlength="200" placeholder="Frase exacta con la que empezará el guion (ej.: Check out this brand new co-op game)" style="display: none; margin-top: 6px;" />
+                        </div>
+
                         <div class="wizard-form-group" style="margin-top: 8px;">
                             <label class="wizard-form-label">📝 Briefing / Instrucciones para el guión</label>
                             <textarea class="wizard-script-box" id="wizardBriefing" rows="3" placeholder="Describe el tono, enfoque, duración deseada, puntos clave a mencionar..."></textarea>
@@ -2835,6 +2912,15 @@
                                     <span id="wizardCutMaxLabel">10.000s</span>
                                 </div>
                             </div>
+                        </div>
+
+                        <div class="wizard-form-group" style="margin-top: 12px;">
+                            <label class="wizard-form-label" for="wizardCutStartMode">✂️ Inicio de cada corte</label>
+                            <select class="wizard-form-input" id="wizardCutStartMode">
+                                <option value="shot_start" selected>Inicio del plano</option>
+                                <option value="best_moment">Mejor momento del plano</option>
+                            </select>
+                            <span style="font-size: 11px; color: var(--text-muted); display: block; margin-top: 2px;">«Mejor momento» salta fundidos, negros o arranques estáticos dentro del mismo plano. Si no hay datos fiables, usa el inicio del plano.</span>
                         </div>
 
                         <div class="wizard-btn-row" style="margin-top: 12px; display: flex; gap: 8px;">
@@ -3171,6 +3257,29 @@
                                     </div>
                                 </div>
 
+                                <!-- Audio master & output options (all optional; defaults = recommended) -->
+                                <div class="card form-card-nested" id="wizardRenderOutputOptions" style="padding: 18px 20px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; display: flex; flex-direction: column; gap: 6px;">
+                                    <label class="form-label" style="margin-bottom: 0; font-weight: 600; font-size: 13px;">🎚️ Audio final y salida</label>
+                                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12.5px; color: var(--text-primary); margin: 0;">
+                                        <input type="checkbox" id="wizardAudioNormalize" checked style="accent-color: #38bdf8; width: 16px; height: 16px;">
+                                        <span>Normalizar volumen (-14 LUFS)</span>
+                                    </label>
+                                    <span style="font-size: 11px; color: var(--text-muted); display: block; margin-top: 2px;">Deja el volumen final al nivel de TikTok, Reels y Shorts y evita picos (true peak -1 dBTP).</span>
+                                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12.5px; color: var(--text-primary); margin: 0;">
+                                        <input type="checkbox" id="wizardAudioDucking" checked style="accent-color: #38bdf8; width: 16px; height: 16px;">
+                                        <span>Bajar el juego cuando habla la voz (ducking)</span>
+                                    </label>
+                                    <span style="font-size: 11px; color: var(--text-muted); display: block; margin-top: 2px;">El volumen de gameplay sigue siendo el nivel base. Desactívalo para la mezcla de volumen fijo de siempre.</span>
+                                    <label style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-primary); margin: 0;">
+                                        <span>🎞️ FPS de salida:</span>
+                                        <select id="wizardOutputFps" style="font-size: 12.5px; padding: 6px 10px; border-radius: 6px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: var(--text-primary); cursor: pointer;">
+                                            <option value="30" selected>30 fps</option>
+                                            <option value="60">60 fps (si el metraje lo permite)</option>
+                                        </select>
+                                    </label>
+                                    <span style="font-size: 11px; color: var(--text-muted); display: block; margin-top: 2px;">60 fps solo se aplica si el vídeo original tiene 50 fps o más; si no, se renderiza a 30 fps y se avisa.</span>
+                                </div>
+
                                 <!-- Render Button -->
                                 <button class="wizard-btn-primary" id="wizardBtnRender" style="margin-top: 6px; font-size: 15.5px; padding: 14px 28px; width: 100%; border-radius: 12px;">
                                     🚀 Renderizar Vídeo Final
@@ -3201,6 +3310,7 @@
                                         <div style="font-size: 40px; margin-bottom: 10px;">🎉</div>
                                         <div style="font-size: 15px; font-weight: 600; color: #34d399; margin-bottom: 4px;">¡Vídeo renderizado con éxito!</div>
                                         <div style="font-size: 11.5px; color: var(--text-muted);" id="wizardRenderResultInfo"></div>
+                                        <div id="wizardRenderWarnings" class="render-warnings-notice" role="status" aria-live="polite"></div>
                                         <div style="margin-top: 12px; display: flex; gap: 8px; justify-content: center;">
                                             <a class="wizard-btn-primary" id="wizardBtnDownload" href="#" download style="width: auto; padding: 9px 20px; text-decoration: none;">
                                                 ⬇️ Descargar
@@ -3941,8 +4051,8 @@
                                 </div>
 
                                 <div class="setup-card" style="background:rgba(30,41,59,.65); border:1px solid #a78bfa; border-radius:12px; padding:16px;">
-                                    <label><input type="checkbox" id="setupTrailerGameLogoEnabled" checked onchange="setupTrailerSetLogoSettings()"> Usar el logo del juego cuando esté disponible</label>
-                                    <p style="font-size:12px; color:var(--text-muted);">Busca logos guardados de este juego y el logo oficial de Steam al exportar. Si no hay uno, utiliza el nombre en texto. Respeta la visibilidad y el momento de revelación del título.</p>
+                                    <label title="El logo oficial del juego es obligatorio"><input type="checkbox" id="setupTrailerGameLogoEnabled" checked disabled onchange="setupTrailerSetLogoSettings()"> Logo oficial del juego (obligatorio)</label>
+                                    <p style="font-size:12px; color:var(--text-muted);">El logo oficial es obligatorio en Set-up y en Promo V3: se usa el logo guardado de este juego o el oficial de Steam. Si no hay ninguno, comprueba o sube el logo antes de exportar. Respeta la visibilidad y el momento de revelación del título.</p>
                                     <label for="setupTrailerGameLogoScale">Tamaño del logo en la revelación</label>
                                     <input id="setupTrailerGameLogoScale" type="range" min="0.5" max="1.5" step="0.1" value="1" oninput="setupTrailerSetLogoSettings()" style="width:100%;">
                                     <button type="button" class="wizard-btn-secondary" onclick="setupTrailerCheckGameLogo()">Comprobar logo</button>
@@ -6729,7 +6839,33 @@
                             <div class="hook-card-title">"So in this new Game..."</div>
                             <p class="hook-card-desc">Apertura directa a la acción sin logo de Steam, ideal para gameplay directo con subtítulos kinetic inmediatos.</p>
                         </label>
+
+                        <label class="promo-hook-card" id="labelHookDirect">
+                            <input type="radio" name="promoHookType" value="direct" style="display: none;">
+                            <div class="hook-card-header">
+                                <span class="hook-card-badge">🎯 Directo (sin entrada)</span>
+                                <span class="hook-card-check">✓</span>
+                            </div>
+                            <div class="hook-card-title">Directo al punto fuerte</div>
+                            <p class="hook-card-desc">Sin frase fija de apertura: las primeras palabras ya cuentan lo más llamativo del juego. Para campañas o canales que no piden la entrada de Steam.</p>
+                        </label>
+
+                        <label class="promo-hook-card" id="labelHookCustom">
+                            <input type="radio" name="promoHookType" value="custom" style="display: none;">
+                            <div class="hook-card-header">
+                                <span class="hook-card-badge">✍️ Entrada propia</span>
+                                <span class="hook-card-check">✓</span>
+                            </div>
+                            <div class="hook-card-title">Tu frase de apertura</div>
+                            <p class="hook-card-desc">El guion empezará exactamente con la frase que escribas (por ejemplo, la que exige una campaña).</p>
+                        </label>
                     </div>
+                    <div class="form-group" id="promosOpeningTextGroup" style="display: none; margin-top: 10px; margin-bottom: 0;">
+                        <label class="form-label" for="promosOpeningText" style="font-weight: 600; font-size: 12.5px; margin-bottom: 6px;">✍️ Frase de entrada propia</label>
+                        <input type="text" id="promosOpeningText" class="form-input" maxlength="200" placeholder="Ej: Check out this brand new co-op game" style="font-size: 13px; padding: 9px 12px;">
+                        <span style="font-size: 11px; color: var(--text-muted); margin-top: 4px; display: block;">El guion empezará exactamente con este texto. Escríbelo en el idioma de la locución.</span>
+                    </div>
+                    <p style="font-size: 11px; color: var(--text-muted); margin: 8px 0 0 0;">Por defecto se usa “Here's a new Steam game…” (la entrada que piden las campañas de Trapster). Las demás entradas son opcionales.</p>
                 </div>
 
                 <!-- 2. Briefing & Marketing Notes -->
@@ -7485,10 +7621,10 @@
     <!-- Toast Container -->
     <div id="toastContainer" class="toast-container"></div>
 
-    <script src="/static/app.js?v=4.5.0-api-usage"></script>
+    <script src="/static/app.js?v=4.6.0-options"></script>
     <script src="/static/api_usage.js?v=1"></script>
     <script src="/static/setup_scenes.js?v=1"></script>
-    <script src="/static/schedule.js?v=1.1.0"></script>
+    <script src="/static/schedule.js?v=1.1.1"></script>
     <script src="/static/logo_lab.js?v=1"></script>
 </body>
 </html>
