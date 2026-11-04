@@ -224,10 +224,18 @@ def get_first_sentence_end_time(alignment_data: Any, script_text: str = "") -> f
     return 3.0
 
 
-def get_standalone_sentence_1_duration(script_text: str, api_key: str = "", voice_id: str = "") -> float:
+def get_standalone_sentence_1_duration(
+    script_text: str,
+    api_key: str = "",
+    voice_id: str = "",
+    speed: Optional[float] = None,
+    stability: Optional[float] = None,
+    similarity_boost: Optional[float] = None,
+) -> float:
     """
     Calculates exact duration of sentence #1 by synthesizing it alone with ElevenLabs if needed,
-    or estimating based on word count.
+    or estimating based on word count. Optional voice settings should match the final voice
+    so the measured duration matches what will actually be heard.
     """
     if not script_text:
         return 3.0
@@ -248,11 +256,17 @@ def get_standalone_sentence_1_duration(script_text: str, api_key: str = "", voic
             temp_dir.mkdir(parents=True, exist_ok=True)
             temp_wav = temp_dir / f"temp_s1_{int(time.time()*1000)}.mp3"
 
+            voice_kwargs = {
+                key: value for key, value in (
+                    ("speed", speed), ("stability", stability), ("similarity_boost", similarity_boost),
+                ) if value is not None
+            }
             synthesize_elevenlabs_with_timestamps(
                 text=first_sentence,
                 output_path=temp_wav,
                 api_key=api_key,
                 voice_id=voice_id,
+                **voice_kwargs,
             )
             dur = get_audio_duration(temp_wav)
             if temp_wav.exists():
@@ -474,6 +488,7 @@ def _single_elevenlabs_tts_call(
     model_id: str = "eleven_v4",
     speed: float = 1.1,
     stability: float = 0.5,
+    similarity_boost: float = 0.75,
 ) -> Tuple[bytes, List[Dict[str, Any]], Dict[str, Any]]:
     """Single ElevenLabs with-timestamps API call returning (audio_bytes, words_list, alignment_dict)."""
     cleaned_text = clean_script_text_for_voice(text)
@@ -490,7 +505,7 @@ def _single_elevenlabs_tts_call(
         "model_id": model_id or "eleven_v4",
         "voice_settings": {
             "stability": float(stability),
-            "similarity_boost": 0.75,
+            "similarity_boost": float(similarity_boost),
             "speed": float(speed),
         }
     }
@@ -520,9 +535,15 @@ def synthesize_elevenlabs_with_timestamps(
     stability: float = 0.5,
     speed_hook: Optional[float] = None,
     natural_delivery: bool = True,
+    similarity_boost: float = 0.75,
 ) -> Tuple[str, List[Dict[str, Any]], Dict[str, Any]]:
     """
-    Dual-Pass Hybrid ElevenLabs TTS Synthesizer & Stitched Audio Pipeline:
+    natural_delivery=True (default): one continuous ElevenLabs request with the chosen
+    speed / stability / similarity_boost (speed clamped to ElevenLabs' 0.7-1.2 range),
+    technical quality gate and gentle pause compaction (see natural_narration.synthesize).
+    The returned dict reports the speed actually used in "speed_full".
+
+    natural_delivery=False keeps the legacy Dual-Pass Hybrid pipeline:
     1. Call A: Full script text at speed_full (base speed + 0.02 -> 1.12x by default).
     2. Call B: First two sentences (hook + 2nd sentence) at speed_hook (base speed + 0.05 -> 1.15x by default).
     3. Stitches audio: Sentence 1 (Hook) from Call B (1.15x) + Sentence 2..N (Rest of script) from Call A (1.12x).
@@ -530,13 +551,20 @@ def synthesize_elevenlabs_with_timestamps(
     """
     out_file = Path(output_path).resolve()
     out_file.parent.mkdir(parents=True, exist_ok=True)
+    stability = 0.5 if stability is None else stability
+    similarity_boost = 0.75 if similarity_boost is None else similarity_boost
 
     if natural_delivery:
-        from natural_narration import synthesize
+        from natural_narration import synthesize, voice_settings
+        settings = voice_settings(speed if speed is not None else 1.10, stability, similarity_boost)
         words = synthesize(text, out_file, api_key, voice_id,
-                           model_id=model_id or "eleven_multilingual_v2", ffmpeg=FFMPEG_CMD)
+                           model_id=model_id or "eleven_multilingual_v2", ffmpeg=FFMPEG_CMD,
+                           speed=settings["speed"], stability=settings["stability"],
+                           similarity_boost=settings["similarity_boost"])
         return str(out_file), words, {"words": words, "synthesis_mode": "continuous",
-                                     "speed_full": 1.0, "speed_hook": None,
+                                     "speed_full": settings["speed"], "speed_hook": None,
+                                     "stability": settings["stability"],
+                                     "similarity_boost": settings["similarity_boost"],
                                      "technical_quality_passed": True}
 
     cleaned_text = clean_script_text_for_voice(text)
@@ -557,7 +585,8 @@ def synthesize_elevenlabs_with_timestamps(
     if not can_dual_pass:
         logger.info(f"Guión de frase única. Realizando síntesis directa a velocidad {speed_hook_val:.2f}...")
         audio_bytes, words, align_dict = _single_elevenlabs_tts_call(
-            cleaned_text, api_key, voice_id, model_id, speed=speed_hook_val, stability=stability
+            cleaned_text, api_key, voice_id, model_id, speed=speed_hook_val, stability=stability,
+            similarity_boost=similarity_boost,
         )
         with open(out_file, "wb") as f:
             f.write(audio_bytes)
@@ -577,7 +606,8 @@ def synthesize_elevenlabs_with_timestamps(
         # Call A: Full script at speed_full (1.12x)
         logger.info(f"1/2 Solicitud A: Guión completo a velocidad {speed_full:.2f}x ({len(cleaned_text)} caracteres)...")
         audio_bytes_a, words_a, align_a = _single_elevenlabs_tts_call(
-            cleaned_text, api_key, voice_id, model_id, speed=speed_full, stability=stability
+            cleaned_text, api_key, voice_id, model_id, speed=speed_full, stability=stability,
+            similarity_boost=similarity_boost,
         )
         with open(file_a_path, "wb") as f:
             f.write(audio_bytes_a)
@@ -585,7 +615,8 @@ def synthesize_elevenlabs_with_timestamps(
         # Call B: Hook + 2nd sentence at speed_hook (1.15x)
         logger.info(f"2/2 Solicitud B: Hook + segunda oración a velocidad {speed_hook_val:.2f}x ('{text_call_b[:60]}...')...")
         audio_bytes_b, words_b, align_b = _single_elevenlabs_tts_call(
-            text_call_b, api_key, voice_id, model_id, speed=speed_hook_val, stability=stability
+            text_call_b, api_key, voice_id, model_id, speed=speed_hook_val, stability=stability,
+            similarity_boost=similarity_boost,
         )
         with open(file_b_path, "wb") as f:
             f.write(audio_bytes_b)
