@@ -5719,7 +5719,7 @@ def approve_promov3_video_endpoint(req: PromoV3ApproveRequest):
             ret_script = parse_and_repair_retention_script(
                 raw_content=retention_data or script_text,
                 game_name=game_name,
-                target_duration=duration or target_duration or 30,
+                target_duration=target_duration or 30,
                 words=approve_words,
             )
             retention_data = ret_script.to_dict()

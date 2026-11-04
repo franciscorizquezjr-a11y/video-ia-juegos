@@ -1,5 +1,6 @@
 # Documentación del proyecto
 
+- [Cambios del 4/11/2026: seguridad, datos, audio, voz, aperturas y nuevas opciones](CAMBIOS_2026-11-04.md).
 - [Abrir la app y estructura de carpetas](ESTRUCTURA_Y_ARRANQUE.md).
 - [Consumo de API, cuotas y presupuestos locales](API_CONSUMO.md).
 - [Control de cuentas y publicaciones](../CONTROL_PUBLICACIONES.md).

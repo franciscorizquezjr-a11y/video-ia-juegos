@@ -22,4 +22,5 @@
 - No sobrescribir `.env`, datos locales, presets, medios ni sesiones recuperables. `temp/` no es enteramente desechable; hay JSON de usuario versionados aunque `.gitignore` ignore nuevos archivos.
 - Revisar `git status` antes de editar y preservar los cambios existentes. Mantener las exclusiones de recarga de medios y datos para evitar interrumpir renders.
 
+- **Cambios del 4/11/2026 (leer antes de editar):** `docs/CAMBIOS_2026-11-04.md`. Seguridad local (Host/Origin, claves enmascaradas), `json_store.py` para JSON compartidos, `_safe_session_dir()` para rutas, `fonts.py`, OpenCV <5 y nuevas opciones opcionales (`hook_type` direct/custom + `opening_text`, `speech_speed`, `similarity_boost`, `cut_start_mode`, `audio_normalize`, `audio_ducking`, `output_fps`, `warnings`).
 - Estructura y mantenimiento: `docs/ESTRUCTURA_Y_ARRANQUE.md`. No vaciar `temp/`; la herramienta `scripts/maintenance.py` genera un plan por defecto y solo elimina intermedios verificables con `--apply`. Errores de lectura detectados el 18/10/2026: consultar `data/maintenance/unreadable_20261018.json`.
