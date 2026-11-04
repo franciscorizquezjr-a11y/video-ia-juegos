@@ -19,6 +19,8 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 from PIL import Image, ImageDraw, ImageFont
 
+from fonts import load_font
+
 logger = logging.getLogger(__name__)
 
 def create_monitor_polygon_mask(
@@ -96,23 +98,10 @@ def render_angled_title(
 
     font_size_canvas = int(round(base_font_size * scale))
 
-    # Font selection - prefer heavy sans-serif fonts
-    font_paths = [
-        r"C:\Windows\Fonts\ariblk.ttf",
-        r"C:\Windows\Fonts\impact.ttf",
-        r"C:\Windows\Fonts\segoeuib.ttf",
-        r"C:\Windows\Fonts\arialbd.ttf"
-    ]
-    font = None
-    for fp in font_paths:
-        if Path(fp).exists():
-            try:
-                font = ImageFont.truetype(fp, font_size_canvas)
-                break
-            except Exception:
-                pass
-    if not font:
-        font = ImageFont.load_default()
+    # Font selection - prefer heavy sans-serif fonts (%WINDIR%/Fonts first,
+    # then Linux/macOS folders, DejaVu Sans Bold and PIL's default font).
+    font = load_font(["ariblk.ttf", "impact.ttf", "segoeuib.ttf", "arialbd.ttf"],
+                     font_size_canvas, bold=True)
 
     # Wrap text if wider than 85% of canvas width
     max_w = int(canvas_w * 0.85)
@@ -354,7 +343,6 @@ def render_setup_trailer_video(
     card_path = None
     if card_text.strip():
         from utils import create_text_card
-        from PIL import ImageFont
         style = card_style or {}
         card_path = temp_dir / f"card_{uid}.png"
         cw, ch = int(canvas_w * .88), int(canvas_h * .28125)
@@ -383,11 +371,13 @@ def render_setup_trailer_video(
                 else:
                     current = trial
             return lines
+        # Measure with the same font create_text_card resolves for its bold
+        # "Segoe UI" body text, on any OS.
         while body_size > 12:
-            font = ImageFont.truetype(r"C:\Windows\Fonts\segoeuib.ttf", body_size)
+            font = load_font(["segoeuib.ttf"], body_size, bold=True)
             lines = line_count(font)
             if lines > 5:
-                lines = line_count(ImageFont.truetype(r"C:\Windows\Fonts\segoeuib.ttf", max(1, int(body_size*.8))))
+                lines = line_count(load_font(["segoeuib.ttf"], max(1, int(body_size*.8)), bold=True))
             if lines * int(body_size*1.3) <= ch - int(cw*.145):
                 break
             body_size -= 1

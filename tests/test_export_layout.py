@@ -1,8 +1,22 @@
-import json,os,subprocess,unittest
+import json,os,shutil,subprocess,unittest
 from pathlib import Path
 from unittest.mock import patch
 from project_paths import ROOT,OUTPUT_ROOT,APP_OUTPUT_DIR,output_url
 from config import AppConfig
+def find_ffmpeg():
+ """FFMPEG_PATH (environment, then .env read-only), then ffmpeg on PATH; None if absent."""
+ candidates=[os.environ.get('FFMPEG_PATH')]
+ try:
+  from dotenv import dotenv_values
+  candidates.append(dotenv_values(ROOT/'.env').get('FFMPEG_PATH'))
+ except Exception:pass
+ candidates.append('ffmpeg')
+ for candidate in candidates:
+  if not candidate:continue
+  if Path(candidate).is_file():return str(candidate)
+  found=shutil.which(candidate)
+  if found:return found
+ return None
 class ExportLayoutTests(unittest.TestCase):
  def test_legacy_root_setting_uses_new_video_folder(self):
   with patch.dict(os.environ,{'OUTPUT_DIR':'output'}):
@@ -11,11 +25,13 @@ class ExportLayoutTests(unittest.TestCase):
   self.assertEqual(output_url(OUTPUT_ROOT/'trabajo'/'dos palabras.zip'),'/media/output/trabajo/dos%20palabras.zip')
   with self.assertRaises(ValueError):output_url(ROOT/'input'/'source.mp4')
  def test_media_sessions_and_completion_event(self):
+  ff=find_ffmpeg()
+  if not ff:self.skipTest('FFmpeg not found: set FFMPEG_PATH or put ffmpeg on PATH')
   from fastapi.testclient import TestClient
   import web_server as server
-  client=TestClient(server.app)
+  # Same Host the local app is opened with (the launcher prefers port 8004).
+  client=TestClient(server.app,base_url='http://127.0.0.1:8004')
   probe=APP_OUTPUT_DIR/'_path_verification.mp4';probe.parent.mkdir(parents=True,exist_ok=True)
-  ff=r'E:\ffmpeg\ffmpeg-2026-01-07-git-af6a1dd0b2-essentials_build\bin\ffmpeg.exe'
   try:
    subprocess.run([ff,'-v','error','-y','-f','lavfi','-i','color=c=blue:s=32x64:r=10','-t','0.3','-c:v','libx264','-pix_fmt','yuv420p',str(probe)],check=True)
    url=output_url(probe)

@@ -9,6 +9,11 @@ from PIL import Image
 import steam_logo_lab as lab
 
 
+def setUpModule():
+    # temp/ is gitignored, so a fresh checkout does not have it yet.
+    (lab.ROOT / "temp").mkdir(parents=True, exist_ok=True)
+
+
 class SteamLogoLabTests(unittest.TestCase):
     def test_app_id_accepts_only_ids_and_steam_store_urls(self):
         self.assertEqual(lab.parse_app_id("620"), 620)

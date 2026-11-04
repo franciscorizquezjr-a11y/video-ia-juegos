@@ -31,6 +31,7 @@ import cv2
 from config import AppConfig
 from schemas_v1 import ShotScene, SecondData, VideoBreakdown, VideoMetadata
 from utils import FFmpegError, safe_json_parse
+from llm import create_genai_client, wait_for_gemini_file_active
 
 logging.basicConfig(
     level=logging.INFO,
@@ -55,6 +56,9 @@ GEMINI_VISION_MODELS: List[str] = [
     "gemini-3.7-flash",
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
+    # NOTE: the gemini-1.5-* entries below are reportedly retired by Google
+    # (not verified for every account/region). They are kept on purpose as
+    # last-resort fallbacks: a 404/"not found" just moves on to the next model.
     "gemini-1.5-flash",
     "gemini-1.5-flash-8b",
     "gemini-1.5-pro",
@@ -271,7 +275,7 @@ def get_or_create_720p_proxy(
 
     # Prepare proxy destination in temp/proxies/
     if temp_dir is None:
-        temp_dir = video_path.parent.parent / "temp" if (video_path.parent.parent / "temp").exists() else Path("temp")
+        temp_dir = video_path.parent.parent / "temp" if (video_path.parent.parent / "temp").exists() else Path(__file__).resolve().parent / "temp"
     proxy_dir = temp_dir / "proxies"
     proxy_dir.mkdir(parents=True, exist_ok=True)
 
@@ -498,7 +502,8 @@ class GeminiVideoAnalyzer:
 
         try:
             from google import genai
-            self._client = genai.Client(api_key=api_key)
+            # Per-request HTTP timeout when the installed SDK supports it.
+            self._client = create_genai_client(genai, api_key)
         except ImportError:
             raise RuntimeError(
                 "The 'google-genai' package is required. Install with: pip install google-genai"
@@ -551,14 +556,13 @@ class GeminiVideoAnalyzer:
                     )
                     uploaded_file = self._client.files.upload(file=file_to_upload)
 
-                    # Poll file processing status until ACTIVE or FAILED
-                    while True:
-                        uploaded_file = self._client.files.get(name=uploaded_file.name)
-                        state = uploaded_file.state.name
-                        if state != "PROCESSING":
-                            break
-                        logger.info(f"Video is processing in Gemini Cloud... ({file_to_upload.name})")
-                        time.sleep(3)
+                    # Poll file processing status until ACTIVE or FAILED, bounded by
+                    # llm.GEMINI_FILE_PROCESSING_TIMEOUT_SECONDS (raises a TimeoutError;
+                    # the finally block below deletes the uploaded file).
+                    uploaded_file = wait_for_gemini_file_active(
+                        self._client, uploaded_file, poll_interval=3.0, label=file_to_upload.name,
+                    )
+                    state = uploaded_file.state.name
 
                     if state == "FAILED":
                         err_msg = getattr(uploaded_file.error, "message", "The file failed to be processed.")

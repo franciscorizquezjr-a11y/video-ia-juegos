@@ -1590,15 +1590,13 @@ def create_text_card(
     }
 
     def load_custom_font(family: str, size: int, bold: bool = False):
+        # %WINDIR%/Fonts first (same files as before on Windows), then Linux/macOS
+        # font folders, DejaVu Sans and finally PIL's default font.
+        from fonts import load_font
+        files = font_map.get(family, ("arial.ttf", "arialbd.ttf"))
+        file_name = files[1] if bold else files[0]
         try:
-            files = font_map.get(family, ("arial.ttf", "arialbd.ttf"))
-            file_name = files[1] if bold else files[0]
-            # Standard Windows Fonts directory
-            path = os.path.join("C:\\Windows\\Fonts", file_name)
-            if os.path.exists(path):
-                return ImageFont.truetype(path, size)
-            # Try loading by name if not full path
-            return ImageFont.truetype(file_name, size)
+            return load_font([file_name], size, bold=bold)
         except Exception:
             return ImageFont.load_default()
 
@@ -1914,11 +1912,13 @@ def create_video_preview(
             try:
                 # Deterministic cache name based on video file and mtime
                 cache_key = hashlib.md5(f"{v_path.name}_{v_path.stat().st_mtime}".encode()).hexdigest()[:10]
-                frame_cache_path = Path("temp") / f"frame_cache_{cache_key}.jpg"
+                # Project-root temp/ (not the process cwd) and the configured FFmpeg.
+                frame_cache_path = Path(__file__).resolve().parent / "temp" / f"frame_cache_{cache_key}.jpg"
                 frame_cache_path.parent.mkdir(parents=True, exist_ok=True)
                 if not frame_cache_path.exists():
+                    ffmpeg_cmd = os.environ.get("FFMPEG_PATH") or "ffmpeg"
                     subprocess.run(
-                        ["ffmpeg", "-y", "-ss", "00:00:02", "-i", str(v_path), "-vframes", "1", "-q:v", "2", str(frame_cache_path)],
+                        [ffmpeg_cmd, "-y", "-ss", "00:00:02", "-i", str(v_path), "-vframes", "1", "-q:v", "2", str(frame_cache_path)],
                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5
                     )
                 if frame_cache_path.exists():
@@ -2002,10 +2002,10 @@ def create_video_preview(
 
     # 5. Draw Simulated Social Media Overlays (TikTok/Shorts style UI)
     try:
-        font_dir = "C:\\Windows\\Fonts"
-        font_regular = ImageFont.truetype(os.path.join(font_dir, "arial.ttf"), 30)
-        font_bold = ImageFont.truetype(os.path.join(font_dir, "arialbd.ttf"), 30)
-        font_small = ImageFont.truetype(os.path.join(font_dir, "arial.ttf"), 24)
+        from fonts import load_font
+        font_regular = load_font(["arial.ttf"], 30)
+        font_bold = load_font(["arialbd.ttf"], 30, bold=True)
+        font_small = load_font(["arial.ttf"], 24)
     except Exception:
         font_regular = ImageFont.load_default()
         font_bold = ImageFont.load_default()
@@ -2124,13 +2124,8 @@ def generate_steam_hook_overlay_video(
         line_spacing = int(font_size * 0.94)
 
         try:
-            font_dir = "C:\\Windows\\Fonts"
-            font_path = os.path.join(font_dir, "impact.ttf")
-            if not os.path.exists(font_path):
-                font_path = os.path.join(font_dir, "ariblk.ttf")
-            if not os.path.exists(font_path):
-                font_path = os.path.join(font_dir, "arialbd.ttf")
-            hook_font = ImageFont.truetype(font_path, font_size)
+            from fonts import load_font
+            hook_font = load_font(["impact.ttf", "ariblk.ttf", "arialbd.ttf"], font_size, bold=True)
         except Exception:
             hook_font = ImageFont.load_default()
 
@@ -2350,19 +2345,17 @@ def fetch_steam_game_logo(
         fw, fh = 640, 240
         card = Image.new("RGBA", (fw, fh), (0, 0, 0, 0))
         draw = ImageDraw.Draw(card)
-        font_dir = "C:\\Windows\\Fonts"
-        fpath = os.path.join(font_dir, "impact.ttf")
-        if not os.path.exists(fpath):
-            fpath = os.path.join(font_dir, "ariblk.ttf")
+        from fonts import load_font
+        title_font_names = ["impact.ttf", "ariblk.ttf"]
         font_size = 72
-        font = ImageFont.truetype(fpath, font_size) if os.path.exists(fpath) else ImageFont.load_default()
+        font = load_font(title_font_names, font_size, bold=True)
         words = game_name.upper().split()
         title_text = " ".join(words)
         bbox = draw.textbbox((0, 0), title_text, font=font, stroke_width=4)
         tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
         if tw > fw - 40:
             font_size = int(font_size * ((fw - 40) / tw))
-            font = ImageFont.truetype(fpath, max(24, font_size)) if os.path.exists(fpath) else ImageFont.load_default()
+            font = load_font(title_font_names, max(24, font_size), bold=True)
             bbox = draw.textbbox((0, 0), title_text, font=font, stroke_width=4)
             tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
         tx = (fw - tw) // 2
