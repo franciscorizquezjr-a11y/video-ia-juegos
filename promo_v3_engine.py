@@ -2777,6 +2777,49 @@ def _apply_best_moment_starts(timeline: List[Dict[str, Any]], shots_by_id: Dict[
             cut["source_out"] = round(cut["source_in"] + float(cut.get("duration", 0.0)), 3)
 
 
+def _note_best_moment_shot_end(cut: Dict[str, Any], shots_by_id: Dict[Any, Dict[str, Any]]) -> None:
+    """Remember where the shot of a best_moment cut ends before the render re-times it.
+
+    Without the shot catalog, the step 4 source_out is a safe lower bound of the shot end.
+    """
+    offset = float(cut.get("source_offset_s") or 0.0)
+    if offset <= 0.0:
+        return
+    source_in = float(cut.get("source_in", 0.0))
+    shot = shots_by_id.get(cut.get("shot_id")) or shots_by_id.get(str(cut.get("shot_id")))
+    if shot:
+        start = float(shot.get("start", shot.get("start_time", 0.0)) or 0.0)
+        cut["_shot_start_s"] = round(start, 3)
+        cut["_shot_end_s"] = round(start + _get_shot_available_duration(shot, default=0.0), 3)
+    else:
+        cut["_shot_start_s"] = round(source_in - offset, 3)
+        cut["_shot_end_s"] = round(source_in + float(cut.get("duration", 0.0)), 3)
+
+
+def _fit_best_moment_cut_in_shot(cut: Dict[str, Any], needed_s: float) -> None:
+    """Move a best_moment start back (at most to the shot start) when the render needs more
+    footage than step 4 planned, so the cut never runs into the next shot.
+
+    Shot-start cuts are left exactly as they were.
+    """
+    offset = float(cut.get("source_offset_s") or 0.0)
+    shot_end = cut.get("_shot_end_s")
+    if offset <= 0.0 or shot_end is None:
+        return
+    source_in = float(cut.get("source_in", 0.0))
+    overrun = round(source_in + float(needed_s) - float(shot_end), 3)
+    if overrun <= 0.0:
+        return
+    shot_start = float(cut.get("_shot_start_s", source_in - offset))
+    back = max(0.0, min(offset, overrun, round(source_in - shot_start, 3)))
+    if back <= 0.0:
+        return
+    cut["source_in"] = round(source_in - back, 3)
+    cut["source_offset_s"] = round(offset - back, 3)
+    cut["source_out"] = round(cut["source_in"] + float(cut.get("duration", 0.0)), 3)
+    cut["source_offset_reason"] = f"{cut.get('source_offset_reason') or 'best_moment'}+render_refit"
+
+
 def orchestrate_promov3_step4_edl(
     step2_shots: List[Dict[str, Any]],
     script_text: str,
@@ -3701,8 +3744,10 @@ def _measure_loudness(audio_path: Path) -> Optional[Dict[str, float]]:
     return values
 
 
-def _loudnorm_chain(measured: Optional[Dict[str, float]], limiter: bool = True) -> str:
-    """Second loudnorm pass (linear, from measurements) or single-pass dynamic, + peak safety."""
+def _loudnorm_chain(measured: Optional[Dict[str, float]], limiter: bool = True, limiter_latency: bool = True) -> str:
+    """Second loudnorm pass (linear, from measurements) or single-pass dynamic, + peak safety.
+
+    limiter_latency=False drops alimiter's 'latency' option (missing in older FFmpeg builds)."""
     def clamp(v: float, lo: float, hi: float) -> float:
         return max(lo, min(hi, v))
 
@@ -3718,7 +3763,9 @@ def _loudnorm_chain(measured: Optional[Dict[str, float]], limiter: bool = True) 
     # loudnorm works at 192 kHz internally: bring the master back to 48 kHz.
     chain += ",aresample=48000"
     if limiter:
-        chain += f",alimiter=limit={MASTER_LIMITER_CEILING}:attack=5:release=50:level=false:latency=true"
+        chain += f",alimiter=limit={MASTER_LIMITER_CEILING}:attack=5:release=50:level=false"
+        if limiter_latency:
+            chain += ":latency=true"
     return chain
 
 
@@ -3786,10 +3833,16 @@ def _render_master_audio(
     except Exception as exc:
         logger.warning(f"Medición de sonoridad (pasada 1) falló: {exc}")
     info["measured_loudness"] = measured
+    # Prefer the measured linear pass; on FFmpeg builds whose alimiter lacks an option, keep
+    # the measured pass with a simpler limiter (or loudnorm's own true-peak control) before
+    # falling back to dynamic single-pass processing.
     attempts = []
     if measured:
         attempts.append(("two_pass", _loudnorm_chain(measured)))
+        attempts.append(("two_pass_compat_limiter", _loudnorm_chain(measured, limiter_latency=False)))
+        attempts.append(("two_pass_no_limiter", _loudnorm_chain(measured, limiter=False)))
     attempts.append(("single_pass", _loudnorm_chain(None)))
+    attempts.append(("single_pass_compat_limiter", _loudnorm_chain(None, limiter_latency=False)))
     attempts.append(("single_pass_no_limiter", _loudnorm_chain(None, limiter=False)))
     for mode, chain in attempts:
         try:
@@ -3806,6 +3859,11 @@ def _render_master_audio(
         warnings.append("No se pudo normalizar la sonoridad a -14 LUFS; se exportó la mezcla sin normalizar.")
         os.replace(mix_wav, out_wav)
     else:
+        if info["normalization_mode"] != attempts[0][0]:
+            warnings.append(
+                f"La normalización de sonoridad usó un modo alternativo ({info['normalization_mode']}) "
+                "porque este FFmpeg no admite el modo preferido; actualiza FFmpeg para el máster de dos pasadas con limitador."
+            )
         try:
             mix_wav.unlink()
         except OSError:
@@ -3855,7 +3913,16 @@ def _has_formula_opener(words: List[Dict[str, Any]]) -> bool:
     for i in range(min(len(tokens) - 1, 6)):
         if tokens[i] == "steam" and tokens[i + 1] in ("game", "games"):
             return True
-    return tokens[:5] == ["so", "in", "this", "new", "game"] or tokens[:4] == ["in", "this", "new", "game"]
+    if tokens[:5] == ["so", "in", "this", "new", "game"] or tokens[:4] == ["in", "this", "new", "game"]:
+        return True
+    # "Here's a new co-op game", "So in this new survival game": the same opener family the
+    # script layer recognises (formula head + up to 3 words + "game").
+    from script_retention import starts_with_formula_game_opener
+    spoken = " ".join(
+        re.sub(r"[^\w'’\-]", "", str(w.get("word", "") if isinstance(w, dict) else ""))
+        for w in (words or [])[:10]
+    )
+    return starts_with_formula_game_opener(re.sub(r"\s+", " ", spoken).strip())
 
 
 def render_promov3_final_video(
@@ -4098,6 +4165,8 @@ def render_promov3_final_video(
 
     # Normalize Hook cuts adhering strictly to <3s retention rule, available shot footage, and exact target_hook_end
     shots_by_id = {s.get("shot_id"): s for s in session_shots if isinstance(s, dict) and s.get("shot_id") is not None}
+    for c in existing_hook_cuts + existing_body_cuts:
+        _note_best_moment_shot_end(c, shots_by_id)
     s0 = existing_hook_cuts[0] if existing_hook_cuts else {}
     s0_id = s0.get("shot_id")
     s0_shot = shots_by_id.get(s0_id)
@@ -4154,6 +4223,9 @@ def render_promov3_final_video(
                 sc["source_in"] = round(s_start, 3)
                 sc["role"] = "hook"
                 sc["duration"] = _get_shot_available_duration(cand_shot)
+                # Starts at the new shot's start: no best_moment offset is inherited from cut 0.
+                for k in ("source_offset_s", "source_offset_reason", "_shot_start_s", "_shot_end_s"):
+                    sc.pop(k, None)
                 cand_hook_cuts.append(sc)
             else:
                 # Fallback: duplicate first cut but advance source_in
@@ -4162,6 +4234,8 @@ def render_promov3_final_video(
                 prev_dur = float(cand_hook_cuts[-1].get("duration", 2.0))
                 sc["source_in"] = round(prev_in + prev_dur, 3)
                 sc["role"] = "hook"
+                for k in ("source_offset_s", "source_offset_reason", "_shot_start_s", "_shot_end_s"):
+                    sc.pop(k, None)
                 cand_hook_cuts.append(sc)
 
         hook_durations = _distribute_hook_durations(
@@ -4197,6 +4271,9 @@ def render_promov3_final_video(
             remaining = round(remaining - duration, 6)
             if remaining > 0.001:
                 sc["transition_out"] = {"type": "cut", "name": "Corte Limpio", "duration": 0.0}
+            if source_in > float(c.get("source_in", 0.0)) + 0.0005:
+                # Later parts of a split cut continue the footage: never shift them back.
+                sc.pop("_shot_end_s", None)
             final_body_cuts.append(sc)
             source_in += duration
             pacing_time = round(pacing_time + duration, 6)
@@ -4279,6 +4356,14 @@ def render_promov3_final_video(
         c["start_time_in_video"] = round(acc, 3)
         acc += float(c.get("duration", 3.0))
         c["end_time_in_video"] = round(acc, 3)
+
+    # best_moment starts were chosen for the step 4 durations. The hook re-timing above,
+    # the post-hook swap and xfade tails can ask for more footage: move those starts back
+    # (never before the shot start) so no cut shows frames of the following shot.
+    for c_idx, c in enumerate(cuts):
+        c_type = (c.get("transition_out") or {}).get("type", "cut")
+        tail = (0.35 if c_type == "circle_zoom" else 0.30) if (c_type in ("circle_zoom", "glitch_pixelize") and c_idx + 1 < len(cuts)) else 0.0
+        _fit_best_moment_cut_in_shot(c, float(c.get("duration", 3.0)) + tail)
 
     segment_paths: List[Path] = []
     applied_transitions: List[Dict[str, Any]] = []
@@ -5038,6 +5123,10 @@ def remix_promov3_audio_sfx(
     step5_data["gameplay_volume"] = round(bg_vol * 100, 1)
     step5_data["audio_ducking"] = ducking
     step5_data["audio_normalize"] = normalize
+    # Session recovery reads render_options first: keep it in step with the remix.
+    if isinstance(step5_data.get("render_options"), dict):
+        step5_data["render_options"]["audio_ducking"] = ducking
+        step5_data["render_options"]["audio_normalize"] = normalize
     step5_data["audio_normalized"] = bool(audio_info.get("normalized"))
     step5_data["audio_ducking_applied"] = bool(audio_info.get("ducking_applied"))
     step5_data["audio_normalization_mode"] = audio_info.get("normalization_mode")

@@ -35,7 +35,7 @@ class MetadataApiTests(unittest.TestCase):
  def setUpClass(cls):
   from fastapi.testclient import TestClient
   import web_server
-  cls.server=web_server;cls.client=TestClient(web_server.app)
+  cls.server=web_server;cls.client=TestClient(web_server.app,base_url='http://127.0.0.1:8004')
  def test_api_is_local_by_default_and_does_not_save_or_publish(self):
   with patch('web_server._api_usage.usage_post') as call:
    result=self.client.post('/api/youtube-shorts/metadata',json={'game_name':'Moon Sweepers','script_text':SOURCE,'candidate_titles':['Moon Cleanup | Moon Sweepers']})

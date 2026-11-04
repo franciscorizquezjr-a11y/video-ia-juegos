@@ -15,6 +15,8 @@ import json_store
 from json_store import JsonStoreError
 import web_server as server
 
+REAL_GAMES_FILE = server.GAMEDEV_GAMES_FILE
+
 
 class JsonStoreTests(unittest.TestCase):
     def setUp(self):
@@ -131,6 +133,125 @@ class ServerStateFileTests(unittest.TestCase):
             data = self.client.get("/api/gamedev/games/g1/insights").json()
         self.assertFalse(data["simulated"])
         self.assertNotIn("simulated", data["insights"][0])
+
+    def _lock_free_from_other_thread(self, path):
+        """True when another thread can take the json_store lock of path right now
+        (also the import-time games path that @_state_locked decorators capture)."""
+        result = {}
+
+        def probe():
+            result["free"] = True
+            for candidate in (path, REAL_GAMES_FILE):
+                lk = json_store.lock_for(candidate)
+                got = lk.acquire(timeout=1.0)
+                result["free"] = result["free"] and got
+                if got:
+                    lk.release()
+
+        t = threading.Thread(target=probe)
+        t.start()
+        t.join()
+        return result.get("free", False)
+
+    def test_sync_insights_does_not_hold_the_games_lock_during_network_calls(self):
+        games_file = self.dir / "gamedev_games.json"
+        games_file.write_text(json.dumps([{"id": "g1", "name": "Boat", "social_links": {"tiktok": "x"}},
+                                          {"id": "g2", "name": "Other"}]), encoding="utf-8")
+        seen = {}
+
+        def slow_fetch(links):
+            seen["lock_free"] = self._lock_free_from_other_thread(games_file)
+            # Another request edits the games file while the scrape is in flight.
+            games = json.loads(games_file.read_text(encoding="utf-8"))
+            games[1]["name"] = "Renamed meanwhile"
+            games[0]["accent_color"] = "#123456"
+            games_file.write_text(json.dumps(games), encoding="utf-8")
+            return {"2026-10-01": {"views_tiktok": 10, "views_instagram": 5, "views_shorts": 1}}
+
+        with patch.object(server, "GAMEDEV_GAMES_FILE", games_file), \
+             patch.object(server, "_fetch_scrapecreators_metrics", side_effect=slow_fetch):
+            res = self.client.post("/api/gamedev/games/g1/sync-insights")
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertTrue(seen["lock_free"])
+        saved = json.loads(games_file.read_text(encoding="utf-8"))
+        self.assertEqual(saved[1]["name"], "Renamed meanwhile")  # concurrent edit kept
+        self.assertEqual(saved[0]["accent_color"], "#123456")
+        self.assertEqual(saved[0]["insights"][0]["total_views"], 16)
+
+    def test_sync_steam_does_not_hold_the_games_lock_during_network_calls(self):
+        games_file = self.dir / "gamedev_games.json"
+        games_file.write_text(json.dumps([{"id": "g1", "name": "Boat", "steam_app_id": "480"}]), encoding="utf-8")
+        seen = {}
+
+        def store(app_id):
+            seen["store_lock_free"] = self._lock_free_from_other_thread(games_file)
+            return {"name": "Spacewar", "header_image": "h.jpg"}
+
+        def history(app_id, key, existing_history=None):
+            seen["steamworks_lock_free"] = self._lock_free_from_other_thread(games_file)
+            return {"status": "ok", "full_history": {"2026-10-01": {"adds": 3, "net": 2}}, "lifetime_total": 42}
+
+        with patch.object(server, "GAMEDEV_GAMES_FILE", games_file), \
+             patch.dict(os.environ, {"STEAMWORKS_API_KEY": "k"}), \
+             patch("dotenv.load_dotenv", return_value=False), \
+             patch.object(server, "_fetch_steam_store_data", side_effect=store), \
+             patch.object(server, "_fetch_steamworks_wishlists_history", side_effect=history):
+            res = self.client.post("/api/gamedev/games/g1/sync-steam")
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertTrue(seen["store_lock_free"])
+        self.assertTrue(seen["steamworks_lock_free"])
+        saved = json.loads(games_file.read_text(encoding="utf-8"))[0]
+        self.assertEqual(saved["wishlists_count"], 42)
+        self.assertEqual(saved["steam_header_image"], "h.jpg")
+        self.assertTrue(res.json()["wishlist_synced"])
+
+    def test_footage_upload_reads_games_off_the_event_loop(self):
+        games_file = self.dir / "gamedev_games.json"
+        folder = self.dir / "footage"
+        games_file.write_text(json.dumps([{"id": "g1", "name": "Boat", "footage_folder": str(folder)}]), encoding="utf-8")
+        threads = []
+        real_load = server._load_gamedev_games
+
+        def spy_load():
+            threads.append(threading.current_thread().name)
+            return real_load()
+
+        with patch.object(server, "GAMEDEV_GAMES_FILE", games_file), \
+             patch.object(server, "_load_gamedev_games", side_effect=spy_load):
+            res = self.client.post("/api/gamedev/games/g1/footage/upload",
+                                   files={"files": ("clip.mp4", b"video", "video/mp4")})
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertTrue((folder / "clip.mp4").is_file())
+        # Every games read ran in the threadpool (AnyIO worker), never on the event loop thread.
+        self.assertTrue(threads)
+        self.assertTrue(all(name.startswith("AnyIO worker") for name in threads), threads)
+
+    def test_batch_worker_status_saves_keep_items_added_or_removed_during_the_run(self):
+        queue_file = self.dir / "batch_queue.json"
+        snapshot = [{"id": "a", "game_name": "A", "status": "pending"},
+                    {"id": "b", "game_name": "B", "status": "pending"}]
+        queue_file.write_text(json.dumps(snapshot), encoding="utf-8")
+        with patch.object(server, "BATCH_QUEUE_FILE", queue_file):
+            # While the batch runs: the user adds C, edits A and removes B.
+            res = self.client.post("/api/batch/add", json={"game_name": "C"})
+            self.assertEqual(res.status_code, 200, res.text)
+            current = json.loads(queue_file.read_text(encoding="utf-8"))
+            current[0]["target_duration"] = 45
+            current = [item for item in current if item["id"] != "b"]
+            queue_file.write_text(json.dumps(current), encoding="utf-8")
+
+            snapshot[0]["status"] = "completed"
+            snapshot[0]["output_video"] = "/output/a.mp4"
+            server._persist_batch_item_status(snapshot[0], snapshot)
+            snapshot[1]["status"] = "error"
+            snapshot[1]["error_msg"] = "boom"
+            server._persist_batch_item_status(snapshot[1], snapshot)
+        saved = json.loads(queue_file.read_text(encoding="utf-8"))
+        self.assertEqual([item["game_name"] for item in saved], ["A", "C"])  # C kept, B not resurrected
+        self.assertEqual(saved[0]["status"], "completed")
+        self.assertEqual(saved[0]["output_video"], "/output/a.mp4")
+        self.assertEqual(saved[0]["target_duration"], 45)  # edit made during the run kept
+        self.assertEqual(saved[1]["status"], "pending")
 
 
 class JobRegistryTests(unittest.TestCase):

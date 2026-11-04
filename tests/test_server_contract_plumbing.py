@@ -90,6 +90,7 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(server.V2ScriptGenerateRequest(game_name="G").opening_text, "")
         self.assertIsNone(server.V2ScriptGenerateRequest(game_name="G").speech_speed)
         self.assertEqual(server.PromoProcessRequest(footage_paths=[], game_name="G").opening_text, "")
+        self.assertEqual(server.PromoProcessRequest(footage_paths=[], game_name="G").voice_speed, 1.0)
         self.assertEqual(server.PromoV3SynthesizeVoiceRequest(script_text="x").similarity_boost, 0.75)
         self.assertEqual(server.PromoV3Step4OrchestrateRequest().cut_start_mode, "shot_start")
         r5 = server.PromoV3Step5RenderRequest()
@@ -178,6 +179,25 @@ class EndpointPlumbingTests(unittest.TestCase):
         self.assertEqual(voice["similarity_boost"], 0.9)
         script = json.loads((self.cache / "sess_fixture" / "step3_script.json").read_text(encoding="utf-8"))
         self.assertEqual((script["speed"], script["stability"], script["similarity_boost"]), (1.05, 0.4, 0.9))
+
+    def test_step3_synthesize_saves_the_speed_elevenlabs_really_uses(self):
+        captured = {}
+
+        def fake_tts(text, output_path, api_key, voice_id, model_id="eleven_v4", speed=1.1, **kw):
+            captured["speed"] = speed
+            Path(output_path).write_bytes(b"mp3")
+            return str(output_path), [], {}
+
+        self.session()
+        with patch.object(server, "BASE_DIR", self.root), \
+             patch.object(server, "synthesize_elevenlabs_with_timestamps", fake_tts), \
+             patch.object(server, "get_media_duration", return_value=3.0):
+            res = self.client.post("/api/promov3/step3/synthesize-voice", json={
+                "session_id": "sess_fixture", "script_text": "Hello there.", "speed": 1.35})
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertEqual(captured["speed"], 1.2)
+        script = json.loads((self.cache / "sess_fixture" / "step3_script.json").read_text(encoding="utf-8"))
+        self.assertEqual(script["speed"], 1.2)
 
     def test_step3_synthesize_with_legacy_voice_engine(self):
         def legacy_tts(text, output_path, api_key, voice_id, model_id="eleven_v4", speed=1.1, stability=0.5,
@@ -288,6 +308,52 @@ class EndpointPlumbingTests(unittest.TestCase):
         self.assertEqual(status["result"]["warnings"], warnings)
         server.ACTIVE_JOBS.pop(body["job_id"], None)
 
+    def test_step5_resynthesis_keeps_similarity_boost_for_later_saves(self):
+        import audio_aligner
+        tts_calls = []
+
+        def fake_tts(text, output_path, api_key, voice_id, **kw):
+            tts_calls.append(kw)
+            Path(output_path).write_bytes(b"mp3")
+            return str(output_path), [{"word": "Hello", "start": 0.0, "end": 0.4}], {"speed_full": kw.get("speed")}
+
+        d = self.session()
+        (d / "step1_shots.json").write_text(json.dumps({"video_info": {"path": ""}, "game_name": "Boat"}), encoding="utf-8")
+        (d / "step3_script.json").write_text(json.dumps({"script_text": "Hello world.", "speed": 1.05, "stability": 0.4,
+                                                          "similarity_boost": 0.4}), encoding="utf-8")
+        with patch.dict(server.os.environ, {"ELEVENLABS_API_KEY": "k"}), \
+             patch.object(production_logo_policy, "require_game_logo", return_value=None), \
+             patch.object(server, "resolve_promov3_video_path", return_value=None), \
+             patch.object(server, "get_media_duration", return_value=1.0), \
+             patch.object(audio_aligner, "synthesize_elevenlabs_with_timestamps", side_effect=fake_tts), \
+             patch.object(server, "render_promov3_final_video", return_value={"status": "completed", "video_url": "/x.mp4"}):
+            res = self.client.post("/api/promov3/step5/render", json={
+                "session_id": "sess_fixture", "game_name": "Boat", "video_format": "full_9_16",
+                "edl": {"timeline": [{"video_path": "missing.mp4", "duration": 2}], "script_text": "Hello world."}})
+            self.assertEqual(res.status_code, 200, res.text)
+            job = wait_job(res.json()["job_id"])
+            server.ACTIVE_JOBS.pop(job.job_id, None)
+        self.assertEqual(job.status, "completed", job.error)
+        self.assertEqual(tts_calls[0].get("similarity_boost"), 0.4)
+        voice = json.loads((d / "step3_voice.json").read_text(encoding="utf-8"))
+        self.assertEqual(voice["similarity_boost"], 0.4)
+        # Back in Step 3, approving keeps the chosen similarity (not the 0.75 default).
+        with patch.object(server, "BASE_DIR", self.root):
+            res = self.client.post("/api/promov3/step3/save", json={
+                "session_id": "sess_fixture", "game_name": "Boat", "script_text": "Hello world.",
+                "word_count": 2, "estimated_duration": 1})
+        self.assertEqual(res.status_code, 200, res.text)
+        saved = json.loads((d / "step3_script.json").read_text(encoding="utf-8"))
+        self.assertEqual(saved["similarity_boost"], 0.4)
+        # A voice file without the field (older sessions) falls back to the saved script value.
+        voice.pop("similarity_boost")
+        (d / "step3_voice.json").write_text(json.dumps(voice), encoding="utf-8")
+        with patch.object(server, "BASE_DIR", self.root):
+            self.client.post("/api/promov3/step3/save", json={
+                "session_id": "sess_fixture", "game_name": "Boat", "script_text": "Hello world.",
+                "word_count": 2, "estimated_duration": 1})
+        self.assertEqual(json.loads((d / "step3_script.json").read_text(encoding="utf-8"))["similarity_boost"], 0.4)
+
     def test_step5_defaults_keep_current_behaviour(self):
         captured = {}
 
@@ -331,11 +397,12 @@ class V2PromoPipelineOpeningTests(unittest.TestCase):
     """The separate 'Here's a new Steam game.' synthesis and the NEW STEAM GAME splash
     only apply to Steam-style openers; direct/custom keep captions from second 0."""
 
-    def run_pipeline(self, hook_type, opening_text=""):
-        calls = {"tts_text": None, "hook_audio": 0, "overlay": 0, "skip_steam_hook": None}
+    def run_pipeline(self, hook_type, opening_text="", **extra):
+        calls = {"tts_text": None, "hook_audio": 0, "overlay": 0, "skip_steam_hook": None, "tts_speed": "unset"}
 
         def fake_tts(text, output_path, api_key, voice_id, model_id="eleven_v4", **kw):
             calls["tts_text"] = text
+            calls["tts_speed"] = kw.get("speed", "unset")
             words = [{"word": w, "start": i * 0.3, "end": i * 0.3 + 0.25} for i, w in enumerate(text.split())]
             return str(output_path), words, {}
 
@@ -367,7 +434,7 @@ class V2PromoPipelineOpeningTests(unittest.TestCase):
                 res = client.post("/api/promos/process", json={
                     "footage_paths": [str(footage)], "game_name": "Boat", "mode": "v2_voice_script",
                     "pipeline_version": "v2", "precut_video": True, "hook_type": hook_type,
-                    "opening_text": opening_text, "script_text": "You build a boat and the sea fights back."})
+                    "opening_text": opening_text, "script_text": "You build a boat and the sea fights back.", **extra})
                 self.assertEqual(res.status_code, 200, res.text)
                 job = wait_job(res.json()["job_id"])
                 server.ACTIVE_JOBS.pop(job.job_id, None)
@@ -380,6 +447,11 @@ class V2PromoPipelineOpeningTests(unittest.TestCase):
         self.assertEqual(calls["hook_audio"], 1)
         self.assertEqual(calls["overlay"], 1)
         self.assertTrue(calls["skip_steam_hook"])
+
+    def test_v2_narration_keeps_historical_1x_speed_unless_chosen(self):
+        self.assertEqual(self.run_pipeline("steam_new_game")["tts_speed"], 1.0)
+        self.assertEqual(self.run_pipeline("direct", voice_speed=1.15)["tts_speed"], 1.15)
+        self.assertEqual(self.run_pipeline("direct", voice_speed=1.4)["tts_speed"], 1.2)
 
     def test_direct_has_no_opener_no_splash_and_full_captions(self):
         calls = self.run_pipeline("direct")

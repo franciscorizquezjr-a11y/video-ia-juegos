@@ -75,6 +75,26 @@ class SlotPickerTests(unittest.TestCase):
         self.assertEqual(json.loads((self.session / 'step2_evaluated_shots.json').read_text())['director_approved_shot_ids'], [2])
         self.assertFalse((self.session / 'step5_result.json').exists())
 
+    def test_replacement_follows_best_moment_cut_start_mode(self):
+        shots = json.loads((self.session / 'step2_evaluated_shots.json').read_text())['shots']
+        shots[1]['peak_offset_s'] = 2.0  # shot 2: 10-15 s, peak 2 s in
+        self.write('step2_evaluated_shots.json', dict(shots=shots))
+        self.edl['cut_start_mode'] = 'best_moment'
+        self.edl['timeline'][0].update(source_offset_s=0.7, source_offset_reason='skip_black_opening')
+        cut = self.ns['promov3_replace_slot_endpoint'](self.req)['edl']['timeline'][0]
+        self.assertEqual(cut['source_offset_reason'], 'peak_hint')
+        self.assertAlmostEqual(cut['source_offset_s'], 1.1, places=3)
+        self.assertAlmostEqual(cut['source_in'], 11.1, places=3)
+        self.assertAlmostEqual(cut['source_out'], 14.1, places=3)
+        self.assertLessEqual(cut['source_out'], 15)
+
+    def test_replacement_in_shot_start_mode_drops_the_previous_offset(self):
+        self.edl['timeline'][0].update(source_offset_s=0.7, source_offset_reason='skip_black_opening')
+        cut = self.ns['promov3_replace_slot_endpoint'](self.req)['edl']['timeline'][0]
+        self.assertEqual(cut['source_in'], 10)
+        self.assertNotIn('source_offset_s', cut)
+        self.assertNotIn('source_offset_reason', cut)
+
     def test_invalid_choices_do_not_modify_session(self):
         for shot_id in [1, 3, 4, 999]:
             with self.subTest(shot_id=shot_id):

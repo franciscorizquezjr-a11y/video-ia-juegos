@@ -791,10 +791,8 @@ const DATA_ACTIONS = {
     'compare-toggle': (el) => toggleCompareVideoSelection(el.dataset.date),
     'footage-toggle': (el) => toggleFootageClipSelection(el.dataset.filename),
     'footage-delete': (el) => deleteGameFootageClip(el.dataset.gameId, el.dataset.filename),
-    'approved-copy-script': (el) => copyApprovedScript(el.dataset.videoId),
-    'approved-retention': (el) => openApprovedRetentionModal(el.dataset.videoId),
-    'approved-metrics': (el) => openApprovedMetricsModal(el.dataset.videoId),
-    'approved-delete': (el) => deleteApprovedVideo(el.dataset.videoId),
+    // Approved-video card buttons are handled by the #approvedVideosGrid click delegate
+    // (initApprovedVideosTab); a data-action here as well would run each action twice.
 };
 
 function bindDataActions(root) {
@@ -1013,9 +1011,21 @@ function promosHookFields() {
     return hookRequestFields(state.promos.hookType, promosOpeningText());
 }
 
+// Same rule as the server (_effective_hook_type / resolve_hook_type): "custom" without
+// a phrase falls back to the Steam opener, so previews, splash controls and the
+// default script match what will actually be rendered.
+function effectiveHookType(hookType, openingText) {
+    const type = normalizeHookType(hookType);
+    return (type === 'custom' && !String(openingText || '').trim()) ? 'steam_new_game' : type;
+}
+
+function promosEffectiveHookType() {
+    return effectiveHookType(state.promos.hookType, promosOpeningText());
+}
+
 // Default script used when the user skips writing one (Promo V2 modal).
 function defaultPromoScriptForHook(hookType, gameName, openingText) {
-    const type = normalizeHookType(hookType);
+    const type = effectiveHookType(hookType, openingText);
     if (type === 'steam_new_game') {
         return `Here's a new Steam Game you need to check out. Experience intense gameplay and unique worlds in ${gameName}. Wishlist now on Steam!`;
     }
@@ -1039,10 +1049,10 @@ function hookTypeLabel(hookType) {
 }
 
 // Voice speed chosen in V3 step 3 (used as speech_speed so the script word
-// budget matches the voice). 1.1 when unknown.
+// budget matches the voice). 1.1 when unknown; clamped to ElevenLabs' 0.7-1.2.
 function promoV3VoiceSpeed() {
     const value = parseFloat(document.getElementById('promov3VoiceSpeedSlider')?.value);
-    return Number.isFinite(value) && value > 0 ? value : 1.1;
+    return Number.isFinite(value) && value > 0 ? Math.min(1.2, Math.max(0.7, value)) : 1.1;
 }
 // ---- End opening / hook options ----
 
@@ -1145,6 +1155,29 @@ function bindRenderOptionControls(prefix, target) {
 
 function normalizeCutStartMode(value) {
     return value === 'best_moment' ? 'best_moment' : 'shot_start';
+}
+
+// Raiser 1 is the build-up into the NEW STEAM GAME splash. Without the splash the
+// untouched default Raiser 1 (start 0 s, volume 80%) is not sent; a Raiser 1 the user
+// moved or re-levelled, Raiser 2 (impact on the white-flash cut) and any added track
+// are always kept.
+function isUntouchedDefaultRaiser1(track) {
+    if (!track || track.id !== 'trk_raiser1') return false;
+    const start = Number(track.start_s || 0);
+    const volume = track.volume === undefined ? 0.8 : Number(track.volume);
+    return Math.abs(start) < 0.001 && Math.abs(volume - 0.8) < 0.001 && !(Number(track.trim_start_s) > 0);
+}
+
+function sfxTracksRequestPayload(tracks, enableSteamHook) {
+    return (tracks || [])
+        .filter(t => enableSteamHook !== false || !isUntouchedDefaultRaiser1(t))
+        .map(t => ({
+            name: t.name,
+            file: t.relative_path || t.filename || t.name,
+            relative_path: t.relative_path || t.filename,
+            start_s: t.start_s,
+            volume: t.volume,
+        }));
 }
 // ---- End render output options ----
 
@@ -9127,6 +9160,9 @@ function handlePromoStep0Next(e) {
 
 function handlePromoModal1Next(e) {
     if (e && e.preventDefault) e.preventDefault();
+    if (normalizeHookType(state.promos.hookType) === 'custom' && !promosOpeningText()) {
+        showToast('«Entrada propia» sin frase: se usará la entrada Steam por defecto («Here\'s a new Steam game») con su rótulo. Escribe la frase o elige otra entrada si no la quieres.', 'warning');
+    }
     let script = (state.promos.v2ScriptText || document.getElementById('promosV2ScriptText')?.value || '').trim();
     if (!script && !state.promos.v2VoicePath) {
         const gameName = (document.getElementById('promosGameName')?.value || 'este videojuego').trim();
@@ -9219,7 +9255,7 @@ function openPromoModal2() {
             return;
         }
 
-        const isSteamHook = (state.promos.hookType === 'steam_new_game');
+        const isSteamHook = (promosEffectiveHookType() === 'steam_new_game');
         const steamHookGroup = document.getElementById('promosSteamHookGroup');
         const btnPrevSteam = document.getElementById('btnPreviewSteamHook');
 
@@ -9841,7 +9877,7 @@ function updatePromosMockupDisplay() {
     const steamHookEl = document.getElementById('promosMockupSteamHook');
     const captionsEl = document.getElementById('promosMockupCaptions');
     const prevMode = state.promos.v2PreviewMode || 'steam_hook';
-    const isSteamHook = (state.promos.hookType === 'steam_new_game');
+    const isSteamHook = (promosEffectiveHookType() === 'steam_new_game');
 
     if (isSteamHook && prevMode === 'steam_hook') {
         if (steamHookEl) {
@@ -11430,8 +11466,10 @@ function restorePromoV3Session(sessionData) {
             const stbValElem = document.getElementById('promov3VoiceStabilityVal');
 
             if (s3.speed !== undefined && spdSlider) {
-                spdSlider.value = s3.speed;
-                if (spdValElem) spdValElem.textContent = `${parseFloat(s3.speed).toFixed(2)}x`;
+                // ElevenLabs range is 0.70-1.20x: older sessions saved up to 1.40x, show what is really used.
+                const restoredSpeed = Math.min(1.2, Math.max(0.7, parseFloat(s3.speed) || 1.1));
+                spdSlider.value = restoredSpeed;
+                if (spdValElem) spdValElem.textContent = `${restoredSpeed.toFixed(2)}x`;
             }
             if (s3.stability !== undefined && stbSlider) {
                 stbSlider.value = s3.stability;
@@ -15134,13 +15172,7 @@ async function runPromoV3Step5() {
         edlPayload.sentence_1_end_s = s1End;
         edlPayload.hook_duration = s1End;
         if (state.promov3.sfxTracks && state.promov3.sfxTracks.length) {
-            edlPayload.sfx_tracks = state.promov3.sfxTracks.map(t => ({
-                name: t.name,
-                file: t.relative_path || t.filename || t.name,
-                relative_path: t.relative_path || t.filename,
-                start_s: t.start_s,
-                volume: t.volume,
-            }));
+            edlPayload.sfx_tracks = sfxTracksRequestPayload(state.promov3.sfxTracks, enableSteam);
         }
 
         const postRes = await fetch('/api/promov3/step5/render', {
@@ -16047,13 +16079,10 @@ function initPromoV3Step5Listeners() {
                 return;
             }
 
-            const payloadTracks = (state.promov3.sfxTracks || []).map(t => ({
-                name: t.name,
-                file: t.relative_path || t.filename || t.name,
-                relative_path: t.relative_path || t.filename,
-                start_s: t.start_s,
-                volume: t.volume,
-            }));
+            const remixHasSplash = state.promov3.step5Result && typeof state.promov3.step5Result.has_steam_hook === 'boolean'
+                ? state.promov3.step5Result.has_steam_hook
+                : (state.promov3.enableSteamHook !== false && state.promov3.steamHookMode !== 'none');
+            const payloadTracks = sfxTracksRequestPayload(state.promov3.sfxTracks, remixHasSplash);
 
             const gVol = state.promov3.gameplayVolume !== undefined ? (state.promov3.gameplayVolume / 100.0) : 0.15;
 
@@ -18934,13 +18963,10 @@ async function wizardRemixSfx() {
         return;
     }
 
-    const payloadTracks = (wizState.sfxTracks || []).map(t => ({
-        name: t.name,
-        file: t.relative_path || t.filename || t.name,
-        relative_path: t.relative_path || t.filename,
-        start_s: t.start_s,
-        volume: t.volume,
-    }));
+    const wizRemixHasSplash = wizState.step5Result && typeof wizState.step5Result.has_steam_hook === 'boolean'
+        ? wizState.step5Result.has_steam_hook
+        : (wizState.steamHookMode !== 'none' && wizState.enableSteamHook !== false);
+    const payloadTracks = sfxTracksRequestPayload(wizState.sfxTracks, wizRemixHasSplash);
 
     const gVol = wizState.gameplayVolume !== undefined ? (wizState.gameplayVolume / 100.0) : 0.15;
 
@@ -19425,13 +19451,7 @@ async function wizardRenderFinal() {
         edlPayload.sentence_1_end_s = currentCutVal;
         edlPayload.hook_duration = currentCutVal;
         if (wizState.sfxTracks && wizState.sfxTracks.length) {
-            edlPayload.sfx_tracks = wizState.sfxTracks.map(t => ({
-                name: t.name,
-                file: t.relative_path || t.filename || t.name,
-                relative_path: t.relative_path || t.filename,
-                start_s: t.start_s,
-                volume: t.volume,
-            }));
+            edlPayload.sfx_tracks = sfxTracksRequestPayload(wizState.sfxTracks, enableSteam);
         }
 
         const postRes = await fetch('/api/promov3/step5/render', {
@@ -22610,8 +22630,8 @@ function renderApprovedVideos() {
     }
 
     // Render cards
+    // Buttons are handled by the grid's delegated click listener (initApprovedVideosTab).
     grid.innerHTML = filtered.map(v => renderApprovedCardHtml(v)).join('');
-    bindDataActions(grid);
 }
 window.renderApprovedVideos = renderApprovedVideos;
 
@@ -22720,7 +22740,7 @@ function renderApprovedCardHtml(v) {
                     <div class="approved-script-box">
                         <div class="approved-script-header">
                             <span class="approved-script-label">🎙️ Guión de Locución</span>
-                            <button type="button" class="btn btn-secondary btn-sm btn-copy-script" data-video-id="${escapeHtml(v.id)}" data-action="approved-copy-script" style="font-size: 11px; padding: 3px 8px;">
+                            <button type="button" class="btn btn-secondary btn-sm btn-copy-script" data-video-id="${escapeHtml(v.id)}" style="font-size: 11px; padding: 3px 8px;">
                                 📋 Copiar Guión
                             </button>
                         </div>
@@ -22750,15 +22770,15 @@ function renderApprovedCardHtml(v) {
             <!-- Card footer -->
             <div class="approved-card-footer">
                 <div class="approved-footer-left">
-                    <button type="button" class="btn btn-secondary btn-sm btn-open-retention" data-video-id="${escapeHtml(v.id)}" data-action="approved-retention">
+                    <button type="button" class="btn btn-secondary btn-sm btn-open-retention" data-video-id="${escapeHtml(v.id)}">
                         🔍 Ver Estructura y Retención Completa
                     </button>
-                    <button type="button" class="btn btn-secondary btn-sm btn-open-metrics" data-video-id="${escapeHtml(v.id)}" data-action="approved-metrics">
+                    <button type="button" class="btn btn-secondary btn-sm btn-open-metrics" data-video-id="${escapeHtml(v.id)}">
                         📊 ${hasMetrics ? 'Editar Métricas' : 'Añadir Métricas'}
                     </button>
                 </div>
                 <div class="approved-footer-right">
-                    <button type="button" class="btn btn-secondary btn-sm btn-delete-video" data-video-id="${escapeHtml(v.id)}" data-action="approved-delete" style="color: #f87171; border-color: rgba(239, 68, 68, 0.3);">
+                    <button type="button" class="btn btn-secondary btn-sm btn-delete-video" data-video-id="${escapeHtml(v.id)}" style="color: #f87171; border-color: rgba(239, 68, 68, 0.3);">
                         🗑️ Eliminar de la Base
                     </button>
                 </div>

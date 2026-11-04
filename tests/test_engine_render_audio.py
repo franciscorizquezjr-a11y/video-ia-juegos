@@ -146,6 +146,24 @@ class MasterAudioHelperTests(unittest.TestCase):
         self.assertTrue(info["normalized"])
         self.assertEqual(info["normalization_mode"], "two_pass")
         self.assertIsNotNone(info["measured_loudness"])
+        self.assertFalse(any("modo alternativo" in w for w in info["warnings"]))
+        loud, peak = integrated_loudness(normalized)
+        self.assertAlmostEqual(loud, -14.0, delta=1.5)
+        self.assertLessEqual(peak, -0.5)
+
+    def test_old_ffmpeg_without_limiter_latency_keeps_measured_two_pass(self):
+        real = engine._run_ffmpeg_cmd
+
+        def old_ffmpeg(cmd, *args, **kwargs):
+            if any("latency=true" in str(part) for part in cmd):
+                raise RuntimeError("Option 'latency' not found")
+            return real(cmd, *args, **kwargs)
+
+        with patch.object(engine, "_run_ffmpeg_cmd", side_effect=old_ffmpeg):
+            normalized, info = self.render("old_ffmpeg", normalize=True)
+        self.assertTrue(info["normalized"])
+        self.assertEqual(info["normalization_mode"], "two_pass_compat_limiter")
+        self.assertTrue(any("modo alternativo" in w for w in info["warnings"]))
         loud, peak = integrated_loudness(normalized)
         self.assertAlmostEqual(loud, -14.0, delta=1.5)
         self.assertLessEqual(peak, -0.5)
@@ -324,6 +342,8 @@ class RenderIntegrationTests(PrerenderedCutsMixin, unittest.TestCase):
         make_video(video, "red", 4.0)
         result = self.render(simple_edl(video), video, fast=True, gameplay_volume=0.6)
         session = self.root / "temp" / "v3_cache" / "fixture"
+        # As saved by the server (_finalize_render_result adds render_options).
+        result["render_options"] = {"audio_normalize": True, "audio_ducking": True, "output_fps": 30}
         (session / "step5_result.json").write_text(json.dumps(result), encoding="utf-8")
         (session / "step3_voice.json").write_text(json.dumps({"audio_path": str(self.voice)}), encoding="utf-8")
         sfx_dir = self.root / "static" / "sfx" / "hits"
@@ -345,6 +365,12 @@ class RenderIntegrationTests(PrerenderedCutsMixin, unittest.TestCase):
         self.assertEqual(list((session / "render_tmp").glob("run_*")), [])
         saved = json.loads((session / "step5_result.json").read_text(encoding="utf-8"))
         self.assertEqual(saved["remixed_sfx_tracks"], [])
+        # A remix with ducking off is what session recovery restores (render_options too).
+        with patch.object(engine, "BASE_DIR", self.root):
+            engine.remix_promov3_audio_sfx(session, [], gameplay_volume=0.6, audio_ducking=False)
+        saved = json.loads((session / "step5_result.json").read_text(encoding="utf-8"))
+        self.assertFalse(saved["audio_ducking"])
+        self.assertEqual(saved["render_options"], {"audio_normalize": True, "audio_ducking": False, "output_fps": 30})
 
     def test_two_renders_of_same_session_use_separate_work_folders(self):
         video = self.root / "source.mp4"
@@ -457,7 +483,13 @@ class EngineSmallHelpersTests(unittest.TestCase):
         self.assertTrue(opener(words_for("Here's a new Steam game for you")))
         self.assertTrue(opener(words_for("Here is a brand new Steam game")))
         self.assertTrue(opener(words_for("So in this new game you build")))
+        # Default-prompt openers without the word "Steam" are still formula openers.
+        self.assertTrue(opener(words_for("Here's a new co-op game where you weld leaks")))
+        self.assertTrue(opener(words_for("Here’s a new roguelike deckbuilder game where every card explodes")))
+        self.assertTrue(opener(words_for("So in this new co-op game, you weld leaks")))
+        self.assertTrue(opener(words_for("So in this new survival game you hunt")))
         self.assertFalse(opener(words_for("This game lets you tame dragons")))
+        self.assertFalse(opener(words_for("You weld leaks in this new co-op game")))
         self.assertFalse(opener(words_for("Here you can raid castles")))
         self.assertFalse(opener([]))
 

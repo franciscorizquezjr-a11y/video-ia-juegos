@@ -98,6 +98,16 @@ function makeContext(extra = {}) {
     assert.equal(btn.events.click.length, 1);
     assert.deepEqual(calls, [['delete', `x'); alert(1); ('`], ['auto', '01-02-26', false]]);
 
+    // Approved-video cards: one handler per click (the #approvedVideosGrid delegate);
+    // no data-action on the same buttons, or confirm()/DELETE would run twice.
+    const approvedCard = slice(source, 'function renderApprovedCardHtml(', '\n}\n');
+    for (const cls of ['btn-copy-script', 'btn-open-retention', 'btn-open-metrics', 'btn-delete-video']) {
+        assert.ok(approvedCard.includes(cls), `approved card keeps .${cls} for the grid delegate`);
+    }
+    assert.doesNotMatch(approvedCard, /data-action=/, 'approved card buttons are handled only by the grid delegate');
+    const delegate = slice(source, 'function initApprovedVideosTab()', '\n}\n');
+    assert.match(delegate, /closest\('\.btn-delete-video'\)/);
+
     // ---------------------------------------------------------------- masked settings
     const requests = [];
     let configResponse = {

@@ -152,9 +152,10 @@ def local_app_health():
 
 _LOCAL_ORIGIN_REGEX = r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d{1,5})?$"
 _LOCAL_ORIGIN_RE = re.compile(_LOCAL_ORIGIN_REGEX, re.IGNORECASE)
-# "testserver" is the Host used by Starlette's TestClient (unit tests). It is a
-# single-label name that public DNS cannot serve, so it is not a rebinding vector.
-_DEFAULT_ALLOWED_HOSTS = {"localhost", "127.0.0.1", "[::1]", "::1", "testserver"}
+# Only loopback names. Single-label names such as Starlette's "testserver" are NOT
+# allowed by default: on Windows they are also resolved through LLMNR/NetBIOS, which
+# anyone on the same LAN can answer (DNS-rebinding). Tests use base_url=127.0.0.1.
+_DEFAULT_ALLOWED_HOSTS = {"localhost", "127.0.0.1", "[::1]", "::1"}
 _UNSAFE_HTTP_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 
@@ -579,6 +580,29 @@ def save_batch_queue(items: List[Dict[str, Any]]):
     json_store.save_json_atomic(BATCH_QUEUE_FILE, items)
 
 
+_BATCH_RUN_FIELDS = ("status", "output_video", "output_filename", "error_msg")
+
+
+def _persist_batch_item_status(item: Dict[str, Any], snapshot: List[Dict[str, Any]]) -> None:
+    """Save the run status of one batch item into the CURRENT queue (fresh load under the
+    lock), so items added, edited or removed while the batch runs are not overwritten."""
+    item_id = item.get("id")
+    with json_store.lock_for(BATCH_QUEUE_FILE):
+        if not item_id:
+            # Legacy item without id: nothing to merge by, keep the historical full save.
+            save_batch_queue(snapshot)
+            return
+        current = load_batch_queue()
+        for q_item in current:
+            if isinstance(q_item, dict) and q_item.get("id") == item_id:
+                for key in _BATCH_RUN_FIELDS:
+                    if key in item:
+                        q_item[key] = item[key]
+                save_batch_queue(current)
+                return
+        # Removed from the queue during the run: do not bring it back.
+
+
 def get_all_presets() -> Dict[str, Any]:
     presets_dir = BASE_DIR / "Presets"
     presets = {}
@@ -925,6 +949,8 @@ class PromoProcessRequest(BaseModel):
     gameplay_volume: Optional[float] = 0.15  # Volume of background gameplay audio (0.0 to 1.0)
     hook_type: Optional[str] = "steam_new_game"  # "steam_new_game", "so_in_this_new_game", "direct", "custom"
     opening_text: Optional[str] = ""  # opener used when hook_type == "custom"
+    # ElevenLabs voice speed for the V2 narration (0.7-1.2). Default 1.0 = historical V2 pace.
+    voice_speed: Optional[float] = 1.0
     # Steam Hook Visual Customizer
     steam_logo_scale: Optional[float] = 1.3
     steam_logo_y: Optional[int] = 540
@@ -2144,7 +2170,8 @@ def get_game_footage(game_id: str):
 @app.post("/api/gamedev/games/{game_id}/footage/upload")
 async def upload_game_footage(game_id: str, files: List[UploadFile] = File(...)):
     """Upload one or more video clips directly to the game's footage directory."""
-    games = _load_gamedev_games()
+    # Off the event loop: this read waits for the games lock held by other requests.
+    games = await run_in_threadpool(_load_gamedev_games)
     target_game = next((g for g in games if g.get("id") == game_id), None)
     if not target_game:
         raise HTTPException(status_code=404, detail="Perfil de juego no encontrado.")
@@ -2230,8 +2257,10 @@ def delete_game_footage_file(game_id: str, filename: str):
         folder_path = (BASE_DIR / folder_path).resolve()
 
     # Only a bare file name that lives directly inside the footage folder.
-    if (not filename or filename in (".", "..") or ".." in filename or "\\" in filename
-            or "/" in filename or ":" in filename or Path(filename).name != filename):
+    # ("Boss fight...final.mp4" is a valid clip name: '..' inside a name is not traversal;
+    # separators, ':' and the resolved-parent check below stop that.)
+    if (not filename or filename in (".", "..") or "\\" in filename
+            or "/" in filename or ":" in filename or "\x00" in filename or Path(filename).name != filename):
         raise HTTPException(status_code=400, detail="Nombre de archivo inválido.")
     base_dir_resolved = folder_path.resolve()
     target_file = (base_dir_resolved / filename).resolve()
@@ -2699,7 +2728,6 @@ def get_game_insights(game_id: str):
 
 
 @app.post("/api/gamedev/games/{game_id}/sync-insights")
-@_state_locked(GAMEDEV_GAMES_FILE)
 def sync_game_insights(game_id: str):
     """
     Sync video metrics from Scrape Creators API.
@@ -2707,19 +2735,23 @@ def sync_game_insights(game_id: str):
     CRITICAL: Preserves all manually entered user hooks and automated flag!
     Newly discovered videos default to automated = True.
     """
+    # The network calls run WITHOUT the games lock (the games list, other panels and
+    # uploads must not wait for ScrapeCreators); the merge reloads and saves under it.
+    pre_target = next((g for g in _load_gamedev_games() if g.get("id") == game_id), None)
+    if not pre_target:
+        raise HTTPException(status_code=404, detail="Perfil de juego no encontrado.")
+    scraped_data = _fetch_scrapecreators_metrics(pre_target.get("social_links") or {})
+    with json_store.lock_for(GAMEDEV_GAMES_FILE):
+        return _merge_synced_insights(game_id, scraped_data)
+
+
+def _merge_synced_insights(game_id: str, scraped_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Merge freshly scraped metrics into the CURRENT game record and save (caller holds the lock)."""
     games = _load_gamedev_games()
-    target_game = None
-    for g in games:
-        if g.get("id") == game_id:
-            target_game = g
-            break
-            
+    target_game = next((g for g in games if g.get("id") == game_id), None)
     if not target_game:
         raise HTTPException(status_code=404, detail="Perfil de juego no encontrado.")
-        
-    social_links = target_game.get("social_links") or {}
-    scraped_data = _fetch_scrapecreators_metrics(social_links)
-    
+
     current_insights = target_game.get("insights") or []
     # Index current insights by upload_date to ensure hooks and automated flags are preserved
     insights_by_date = {item["upload_date"]: dict(item) for item in current_insights if "upload_date" in item}
@@ -3032,6 +3064,14 @@ def _fetch_steam_store_data(app_id: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _redact_secret_text(value: Any, secret: str = "") -> str:
+    """Error text safe to log: removes the secret itself and any key=/api_key= URL parameter."""
+    text = str(value)
+    if secret:
+        text = text.replace(secret, "••••")
+    return re.sub(r"(?i)((?:api_)?key=)[^&\s'\"]+", r"\1••••", text)
+
+
 def _fetch_steamworks_wishlists_history(app_id: str, api_key: str, existing_history: Optional[Dict[str, Any]] = None, days: int = 14) -> Dict[str, Any]:
     """
     Calls Steamworks Partner Web API (IPartnerFinancialsService/GetAppWishlistReporting/v001/)
@@ -3081,7 +3121,10 @@ def _fetch_steamworks_wishlists_history(app_id: str, api_key: str, existing_hist
             else:
                 return d_str, None, None, f"HTTP {resp.status_code}"
         except Exception as e:
-            return d_str, None, None, str(e)
+            # Never echo the exception text: requests puts the full URL (with ?key=...)
+            # in it, and this message reaches the UI toast and API clients.
+            logger.warning(f"Steamworks no respondió para {d_str}: {_redact_secret_text(e, api_key)}")
+            return d_str, None, None, f"No se pudo conectar con partner.steam-api.com ({type(e).__name__})."
 
     # First fetch yesterday
     d_probe, probe_data, probe_min_date, probe_err = fetch_single(yesterday_str)
@@ -3384,30 +3427,25 @@ def get_game_steam_impact(game_id: str):
 
 
 @app.post("/api/gamedev/games/{game_id}/sync-steam")
-@_state_locked(GAMEDEV_GAMES_FILE)
 def sync_game_steam_impact(game_id: str, payload: Optional[SyncSteamPayload] = None):
     """Sync Steam store metadata & live wishlist metrics with Steam API and recompute impact analysis."""
     from dotenv import load_dotenv
     load_dotenv(BASE_DIR / ".env", override=True)
 
-    games = _load_gamedev_games()
-    target_game = None
-    for g in games:
-        if g.get("id") == game_id:
-            target_game = g
-            break
-            
-    if not target_game:
+    # Steam store / Steamworks requests (up to minutes on a slow network) run WITHOUT
+    # the games lock; the result is merged into a fresh reload under the lock.
+    pre_target = next((g for g in _load_gamedev_games() if g.get("id") == game_id), None)
+    if not pre_target:
         raise HTTPException(status_code=404, detail="Perfil de juego no encontrado.")
-        
-    app_id = (target_game.get("steam_app_id") or "").strip()
-    if not app_id and target_game.get("social_links", {}).get("steam"):
-        app_id = _extract_steam_app_id(target_game.get("social_links", {}).get("steam"))
+
+    app_id = (pre_target.get("steam_app_id") or "").strip()
+    if not app_id and (pre_target.get("social_links") or {}).get("steam"):
+        app_id = _extract_steam_app_id((pre_target.get("social_links") or {}).get("steam"))
 
     if not app_id:
         raise HTTPException(
             status_code=400,
-            detail=f"El juego '{target_game.get('name')}' no tiene configurado un Steam App ID ni enlace de la tienda. Haz clic en 'Editar Perfil' y añade el Steam App ID (ej: 5195880)."
+            detail=f"El juego '{pre_target.get('name')}' no tiene configurado un Steam App ID ni enlace de la tienda. Haz clic en 'Editar Perfil' y añade el Steam App ID (ej: 5195880)."
         )
 
     # 1. Validar primero con la API Oficial de Steam Store (pública y 100% fiable)
@@ -3417,6 +3455,26 @@ def sync_game_steam_impact(game_id: str, payload: Optional[SyncSteamPayload] = N
             status_code=400,
             detail=f"El Steam App ID '{app_id}' no fue encontrado en los servidores de Steam (error 404). Verifica que el número coincida con la URL de tu juego (store.steampowered.com/app/{app_id})."
         )
+
+    # 2. Consultar Steamworks Partner API para Wishlists
+    steam_key = (os.getenv("STEAMWORKS_API_KEY") or os.getenv("STEAM_WEB_API_KEY") or "").strip()
+    steam_res = None
+    if steam_key:
+        steam_res = _fetch_steamworks_wishlists_history(
+            app_id, steam_key, existing_history=pre_target.get("steam_wishlist_history", {})
+        )
+
+    with json_store.lock_for(GAMEDEV_GAMES_FILE):
+        return _merge_synced_steam(game_id, payload, store_data, steam_key, steam_res)
+
+
+def _merge_synced_steam(game_id: str, payload: Optional[SyncSteamPayload], store_data: Dict[str, Any],
+                        steam_key: str, steam_res: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Apply a Steam sync result to the CURRENT game record and save (caller holds the lock)."""
+    games = _load_gamedev_games()
+    target_game = next((g for g in games if g.get("id") == game_id), None)
+    if not target_game:
+        raise HTTPException(status_code=404, detail="Perfil de juego no encontrado.")
 
     store_name = store_data.get("name", "")
     header_img = store_data.get("header_image", "")
@@ -3430,14 +3488,10 @@ def sync_game_steam_impact(game_id: str, payload: Optional[SyncSteamPayload] = N
     if payload and payload.wishlists_count is not None and int(payload.wishlists_count) > 0:
         manual_wishlists = int(payload.wishlists_count)
 
-    # 2. Consultar Steamworks Partner API para Wishlists
-    steam_key = (os.getenv("STEAMWORKS_API_KEY") or os.getenv("STEAM_WEB_API_KEY") or "").strip()
     wishlist_synced = False
     status_msg = ""
 
-    if steam_key:
-        existing_history = target_game.get("steam_wishlist_history", {})
-        steam_res = _fetch_steamworks_wishlists_history(app_id, steam_key, existing_history=existing_history)
+    if steam_key and steam_res is not None:
         if steam_res.get("status") == "ok":
             full_history = steam_res.get("full_history", {})
             target_game["steam_wishlist_history"] = full_history
@@ -4152,6 +4206,14 @@ def save_promov3_step3_endpoint(req: PromoV3Step3SaveRequest):
     new_script_txt = (req.script_text or "").strip()
     script_changed = bool(old_script_txt and new_script_txt and not is_script_text_equivalent(old_script_txt, new_script_txt))
 
+    # Voice similarity chosen earlier; kept when the voice file does not carry it.
+    prev_similarity = None
+    if out_file.exists():
+        try:
+            prev_similarity = (json.loads(out_file.read_text(encoding="utf-8")) or {}).get("similarity_boost")
+        except Exception:
+            prev_similarity = None
+
     if script_changed:
         logger.info(f"Guión modificado en Paso 3. Purgando locución y montaje EDL desactualizados en sesión '{sess_name}'.")
         voice_file.unlink(missing_ok=True)
@@ -4225,7 +4287,7 @@ def save_promov3_step3_endpoint(req: PromoV3Step3SaveRequest):
         "alignment": saved_alignment,
         "speed": vdata.get("speed", 1.10),
         "stability": vdata.get("stability", 0.50),
-        "similarity_boost": vdata.get("similarity_boost", 0.75),
+        "similarity_boost": vdata.get("similarity_boost", prev_similarity if prev_similarity is not None else 0.75),
         "speed_full": vdata.get("speed_full"),
         "speed_hook": vdata.get("speed_hook"),
         "synthesis_mode": vdata.get("synthesis_mode"),
@@ -4310,7 +4372,13 @@ def synthesize_promov3_voice_endpoint(req: PromoV3SynthesizeVoiceRequest):
 
     out_file = v3_dir / "voiceover.mp3"
 
-    spd = float(req.speed) if req.speed is not None else 1.1
+    # Saved/reported speed = the one ElevenLabs really uses (0.7-1.2).
+    try:
+        spd = min(1.2, max(0.7, float(req.speed))) if req.speed is not None else 1.1
+    except (TypeError, ValueError):
+        spd = 1.1
+    if spd != spd:  # NaN
+        spd = 1.1
     stb = float(req.stability) if req.stability is not None else 0.5
     try:
         sim = max(0.0, min(1.0, float(req.similarity_boost if req.similarity_boost is not None else 0.75)))
@@ -4940,6 +5008,22 @@ def promov3_replace_slot_endpoint(req: PromoV3SlotShotRequest):
     edl = json.loads(json.dumps(req.edl))
     cut = edl["timeline"][req.slot_index]
     source_in = float(shot.get("start", shot.get("start_time", 0)))
+    # Same cut start rule as the rest of the EDL: 'best_moment' starts inside the new
+    # shot (never leaving it); the previous shot's offset never carries over.
+    cut.pop("source_offset_s", None)
+    cut.pop("source_offset_reason", None)
+    if str(edl.get("cut_start_mode") or "shot_start").strip().lower() == "best_moment":
+        import promo_v3_engine as _engine
+        try:
+            candidate = shot.get("video_path") or shot.get("source_video_path")
+            resolved = _engine.resolve_promov3_video_path(
+                candidate, game_name=edl.get("game_name", ""), session_id=sess_dir.name) if candidate else None
+            offset, reason = _engine._choose_cut_start_offset(shot, float(cut["duration"]), resolved)
+        except Exception as bm_err:
+            _engine.logger.warning(f"Best moment del plano #{shot.get('shot_id')} falló ({bm_err}); se usa el inicio del plano.")
+            offset, reason = 0.0, "fallback_analysis_failed"
+        source_in = round(source_in + offset, 3)
+        cut.update(source_offset_s=round(offset, 3), source_offset_reason=reason)
     cut.update(shot_id=shot["shot_id"], source_in=source_in,
                source_out=round(source_in + float(cut["duration"]), 3),
                video_path=shot.get("video_path") or shot.get("source_video_path") or "",
@@ -5241,6 +5325,7 @@ def run_promov3_step5_render(req: PromoV3Step5RenderRequest):
                             "voice_id": voice_id,
                             "speed": float(script_data.get("speed") or 1.10),
                             "stability": float(script_data.get("stability", 0.50)),
+                            "similarity_boost": _clamp_float(script_data.get("similarity_boost", 0.75), 0.0, 1.0, 0.75),
                             "speed_full": align_dict.get("speed_full"),
                             "speed_hook": align_dict.get("speed_hook"),
                             "synthesis_mode": align_dict.get("synthesis_mode"),
@@ -6490,7 +6575,7 @@ def run_batch():
                 
                 try:
                     item["status"] = "processing"
-                    save_batch_queue(queue)
+                    _persist_batch_item_status(item, queue)
                     
                     run_id = generate_run_id()
                     input_dir = BASE_DIR / "input"
@@ -6699,7 +6784,7 @@ def run_batch():
                     item["status"] = "completed"
                     item["output_video"] = app_output_url(out_name)
                     item["output_filename"] = out_name
-                    save_batch_queue(queue)
+                    _persist_batch_item_status(item, queue)
                     
                     completed_results.append({
                         "id": item.get("id"),
@@ -6713,7 +6798,7 @@ def run_batch():
                     logger.exception(f"Error in batch item {g_name}")
                     item["status"] = "error"
                     item["error_msg"] = str(e_item)
-                    save_batch_queue(queue)
+                    _persist_batch_item_status(item, queue)
                     completed_results.append({
                         "id": item.get("id"),
                         "game_name": g_name,
@@ -7757,6 +7842,7 @@ def process_promo_pipeline(req: PromoProcessRequest):
                         api_key=eleven_key,
                         voice_id=voice_id,
                         model_id=eleven_model,
+                        speed=_clamp_float(req.voice_speed, 0.7, 1.2, 1.0) if req.voice_speed is not None else 1.0,
                     )
 
                     raw_voice_path = Path(tts_path)
@@ -8817,6 +8903,16 @@ def sanitize_filename(name: str) -> str:
     return cleaned
 
 
+def _promos_game_dir(clean_game: str) -> Path:
+    """PromosFootage/<game>, refusing names that would leave PromosFootage ('..', '.')."""
+    if not clean_game or set(clean_game) <= {"."}:
+        raise HTTPException(status_code=400, detail="Nombre del juego no válido")
+    base = PROMOS_FOOTAGE_DIR.resolve()
+    if (base / clean_game).resolve().parent != base:
+        raise HTTPException(status_code=400, detail="Nombre del juego no válido")
+    return PROMOS_FOOTAGE_DIR / clean_game
+
+
 class PromoV3OrganizeFootageRequest(BaseModel):
     game_name: str
     video_paths: List[str]
@@ -8837,7 +8933,7 @@ def organize_promov3_game_footage(req: PromoV3OrganizeFootageRequest):
     if not clean_game:
         raise HTTPException(status_code=400, detail="Nombre del juego no válido")
 
-    game_dir = PROMOS_FOOTAGE_DIR / clean_game
+    game_dir = _promos_game_dir(clean_game)
     game_dir.mkdir(parents=True, exist_ok=True)
 
     new_paths: List[str] = []
@@ -8971,7 +9067,7 @@ def load_promov3_game(game_name: str):
     """
     raw_name = game_name.strip()
     clean_game = sanitize_filename(raw_name)
-    game_dir = PROMOS_FOOTAGE_DIR / clean_game
+    game_dir = _promos_game_dir(clean_game)
 
     # Fallback: check case-insensitive match among existing directories
     if not game_dir.exists() or not game_dir.is_dir():

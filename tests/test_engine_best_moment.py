@@ -1,5 +1,6 @@
 """Step 4 cut_start_mode='best_moment': start inside the shot after fades/frozen openings,
 never leaving the shot and never changing durations or the unique-shot coverage."""
+import json
 import shutil
 import subprocess
 import tempfile
@@ -145,6 +146,86 @@ class BestMomentEdlTests(unittest.TestCase):
     def test_unknown_mode_falls_back_to_shot_start(self):
         edl = self.edl("whatever")
         self.assertEqual(edl["cut_start_mode"], "shot_start")
+
+
+@unittest.skipUnless(HAS_FFMPEG, "FFmpeg required")
+class BestMomentRenderTests(unittest.TestCase):
+    """The render re-times hook cuts (balanced split, single cut, xfade tails). A best_moment
+    start must then move back inside its shot instead of showing frames of the next shot."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(dir=ROOT / "tests")
+        self.root = Path(self.tmp.name)
+        self.addCleanup(self.tmp.cleanup)
+
+    def test_rebalanced_hook_cut_never_runs_past_its_shot(self):
+        src = self.root / "src.mp4"
+        # shot 1: 0-6 s, shot 2: 6-8 s (0.6 s black opening), shot 3: 8-14 s.
+        graph = ("testsrc2=s=160x90:r=30:d=6[a];color=c=black:s=160x90:r=30:d=0.6[b];"
+                 "testsrc=s=160x90:r=30:d=1.4[c];color=c=red:s=160x90:r=30:d=6[d];"
+                 "[a]format=yuv420p,setsar=1[a1];[b]format=yuv420p,setsar=1[b1];[c]format=yuv420p,setsar=1[c1];"
+                 "[d]format=yuv420p,setsar=1[d1];[a1][b1][c1][d1]concat=n=4:v=1:a=0[v]")
+        subprocess.run([engine.FFMPEG_CMD, "-v", "error", "-y", "-filter_complex", graph, "-map", "[v]",
+                        "-c:v", "libx264", "-pix_fmt", "yuv420p", str(src)], check=True, capture_output=True)
+        shots = [dict(shot_id=1, start=0.0, end=6.0, duration=6.0, video_path=str(src)),
+                 dict(shot_id=2, start=6.0, end=8.0, duration=2.0, video_path=str(src)),
+                 dict(shot_id=3, start=8.0, end=14.0, duration=6.0, video_path=str(src))]
+        # Step 4 fills a 4.5 s hook greedily (3.0 + 1.5); the render balances it (2.5 + 2.0).
+        timeline = [
+            {"order": 1, "shot_id": 1, "role": "hook", "duration": 3.0, "source_in": 0.0, "source_out": 3.0,
+             "video_path": str(src), "transition_out": {"type": "cut", "duration": 0.0}},
+            {"order": 2, "shot_id": 2, "role": "hook", "duration": 1.5, "source_in": 6.0, "source_out": 7.5,
+             "video_path": str(src), "transition_out": {"type": "white_flash", "duration": 0.15}},
+            {"order": 3, "shot_id": 3, "role": "gameplay", "duration": 3.0, "source_in": 8.0, "source_out": 11.0,
+             "video_path": str(src), "transition_out": {"type": "cut", "duration": 0.0}},
+        ]
+        engine._apply_best_moment_starts(timeline, {s["shot_id"]: s for s in shots})
+        self.assertGreater(timeline[1]["source_offset_s"], 0.0)  # the black opening of shot 2 was skipped
+        edl = {"script_mode": "normal", "total_duration": 7.5, "sentence_1_end_s": 4.5, "hook_duration": 4.5,
+               "timeline": timeline, "script_text": "x", "cut_start_mode": "best_moment"}
+        sess = self.root / "temp" / "v3_cache" / "sbm"
+        sess.mkdir(parents=True)
+        (sess / "step2_evaluated_shots.json").write_text(json.dumps({"shots": shots}), encoding="utf-8")
+        voice = self.root / "voice.wav"
+        subprocess.run([engine.FFMPEG_CMD, "-v", "error", "-y", "-f", "lavfi", "-i", "sine=f=300:d=7.5:sample_rate=48000",
+                        "-af", "volume=0.2", str(voice)], check=True, capture_output=True)
+        calls = []
+        real = engine._extract_subclip
+
+        def record(src_video, start_time, duration, vf, out_path, has_audio):
+            calls.append((round(float(start_time), 3), round(float(start_time) + float(duration), 3)))
+            return real(src_video, start_time, duration, vf, out_path, has_audio)
+
+        with patch.object(engine, "BASE_DIR", self.root), patch.object(engine, "_extract_subclip", side_effect=record):
+            engine.render_promov3_final_video(edl, src, voice, None, self.root / "output", temp_dir=self.root / "rt",
+                                              enable_steam_hook=False, session_id="sbm")
+        self.assertEqual(len(calls), 3)
+        for (start, end), shot in zip(calls, shots):
+            self.assertGreaterEqual(start, shot["start"] - 1e-6)
+            self.assertLessEqual(end, shot["end"] + 1e-6, f"cut extracted past the end of shot {shot['shot_id']}")
+
+    def test_refit_only_moves_best_moment_starts_back_to_the_shot_start(self):
+        cut = {"shot_id": 2, "source_in": 6.4, "duration": 1.5, "source_offset_s": 0.4, "source_offset_reason": "skip_black_opening"}
+        engine._note_best_moment_shot_end(cut, {2: {"shot_id": 2, "start": 6.0, "end": 8.0, "duration": 2.0}})
+        engine._fit_best_moment_cut_in_shot(cut, 1.5)  # fits: untouched
+        self.assertEqual(cut["source_in"], 6.4)
+        engine._fit_best_moment_cut_in_shot(cut, 1.8)  # needs 0.2 s more: partial refit
+        self.assertAlmostEqual(cut["source_in"], 6.2, places=3)
+        self.assertAlmostEqual(cut["source_offset_s"], 0.2, places=3)
+        engine._fit_best_moment_cut_in_shot(cut, 5.0)  # never before the shot start
+        self.assertAlmostEqual(cut["source_in"], 6.0, places=3)
+        self.assertEqual(cut["source_offset_s"], 0.0)
+        # A stale offset (bigger than the real distance to the shot start) never moves
+        # the start into the previous shot.
+        stale = {"shot_id": 2, "source_in": 6.1, "duration": 1.5, "source_offset_s": 0.9}
+        engine._note_best_moment_shot_end(stale, {2: {"shot_id": 2, "start": 6.0, "end": 8.0, "duration": 2.0}})
+        engine._fit_best_moment_cut_in_shot(stale, 3.0)
+        self.assertAlmostEqual(stale["source_in"], 6.0, places=3)
+        plain = {"shot_id": 1, "source_in": 0.0, "duration": 3.0, "source_offset_s": 0.0}
+        engine._note_best_moment_shot_end(plain, {})
+        engine._fit_best_moment_cut_in_shot(plain, 9.0)  # shot_start cuts keep the historical behaviour
+        self.assertEqual(plain["source_in"], 0.0)
+        self.assertNotIn("_shot_end_s", plain)
 
 
 if __name__ == "__main__":

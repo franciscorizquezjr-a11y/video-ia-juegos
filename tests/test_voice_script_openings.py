@@ -245,6 +245,21 @@ class GenerateScriptOpeningTests(unittest.TestCase):
                          "Trapster, presents. You build boats; fast.")
         self.assertEqual(utils.apply_opening("Me build boat.", "caveman"), "Me build boat.")
 
+    def test_custom_opening_keeps_its_own_trailing_punctuation(self):
+        # The voice cleaner turns ':' / ',' into ';' in the body, never inside the mandated opener.
+        self.assertEqual(utils.apply_opening("You build towers, then you defend them.", "custom", "Wishlist alert:"),
+                         "Wishlist alert: you build towers; then you defend them.")
+        self.assertEqual(utils.apply_opening("Wishlist alert: you build towers.", "custom", "Wishlist alert:"),
+                         "Wishlist alert: you build towers.")
+        self.assertEqual(utils.apply_opening("You build, then defend.", "custom", "Hey, gamers —"),
+                         "Hey, gamers — you build; then defend.")
+        # Opener already spoken without its colon: the colon is restored.
+        self.assertEqual(ensure_opening_text("wishlist ALERT you build towers.", "Wishlist alert:"),
+                         "Wishlist alert: you build towers.")
+        # A final full stop is not forced into a sentence that continues.
+        self.assertEqual(ensure_opening_text("Here is a new Steam game where you fly.", "Here's a new Steam game."),
+                         "Here's a new Steam game where you fly.")
+
 
 if __name__ == "__main__":
     unittest.main()

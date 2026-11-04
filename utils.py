@@ -996,6 +996,11 @@ def _voice_clean_keep_opening(text: str, opening_text: str = "") -> str:
     end = opening_prefix_end(body, opening) if opening else None
     if end is None:
         return clean_script_text_for_voice(body)
+    # The opener's own trailing punctuation ("Wishlist alert:", "Hey, gamers —") is part of
+    # the mandated phrase: keep it out of the cleaner (which turns ':' and ',' into ';').
+    op_tail = opening[len(re.sub(r"[^\w]+$", "", opening)):]
+    if op_tail and body[end:].startswith(op_tail):
+        end += len(op_tail)
     head, rest = body[:end], clean_script_text_for_voice(body[end:])
     if not rest:
         return head.strip()

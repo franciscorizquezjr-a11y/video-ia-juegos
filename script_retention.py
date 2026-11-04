@@ -421,6 +421,13 @@ def starts_with_formula_opener(text: str) -> bool:
     return bool(_FORMULA_START_RE.match(text or ""))
 
 
+def starts_with_formula_game_opener(text: str) -> bool:
+    """True when text opens with a full "<formula> [up to 3 words] game" opener
+    ("Here's a new co-op game", "So in this new survival game") — the same family
+    strip_formulaic_opener / ensure_steam_hook_prefix recognise."""
+    return bool(_STRIP_OPENER_RE.match(text or ""))
+
+
 def _capitalize_first(text: str) -> str:
     for i, ch in enumerate(text):
         if ch.isalpha():
@@ -510,7 +517,9 @@ def ensure_opening_text(text: str, opening_text: str) -> str:
     """Returns text starting with opening_text verbatim (words, order and case).
 
     - Already present (same words, any case/punctuation): the opener words are restored
-      exactly, keeping the script's own continuation.
+      exactly, keeping the script's own continuation. The opener's own non-final
+      punctuation (":", ",", ";") is restored too; a final "." / "!" / "?" is only kept
+      when the script also breaks there (so "...game where you" still reads as one sentence).
     - Missing: the opener is prefixed with a natural join.
     """
     op = normalize_opening_text(opening_text)
@@ -535,6 +544,8 @@ def ensure_opening_text(text: str, opening_text: str) -> str:
         return (core + tail + (" " + after if after else "")).strip()
     if tail and not rest.strip():
         return core + tail
+    if tail and not re.search(r"[.!?]", tail) and rest[:1].isspace():
+        return core + tail + " " + rest.lstrip()
     return core + rest
 
 

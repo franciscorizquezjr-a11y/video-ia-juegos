@@ -163,6 +163,8 @@ function baseContext(extra = {}) {
     assert.ok(/id="promov3AudioNormalize" checked/.test(html) && /id="promov3AudioDucking" checked/.test(html));
     assert.ok(/<option value="30" selected>30 fps<\/option>/.test(html));
     assert.ok(/<option value="shot_start" selected>Inicio del plano<\/option>/.test(html));
+    // Voice speed slider matches what ElevenLabs accepts (0.70-1.20x).
+    assert.ok(/id="promov3VoiceSpeedSlider" min="0\.70" max="1\.20"/.test(html), 'voice speed slider capped at 1.20x');
 
     // ------------------------------------------------------------- helpers
     {
@@ -184,6 +186,16 @@ function baseContext(extra = {}) {
         assert.match(defScript('steam_new_game', 'Boat'), /^Here's a new Steam Game/);
         assert.doesNotMatch(defScript('direct', 'Boat'), /Here's a new|So in this new game/);
         assert.match(defScript('custom', 'Boat', 'Campaign line.'), /^Campaign line\. /);
+        // "Entrada propia" without a phrase mirrors the server fallback to the Steam opener.
+        assert.match(defScript('custom', 'Boat', '   '), /^Here's a new Steam Game/);
+        assert.equal(ctx.effectiveHookType('custom', ''), 'steam_new_game');
+        assert.equal(ctx.effectiveHookType('custom', 'Trapster found this gem.'), 'custom');
+        assert.equal(ctx.effectiveHookType('direct', ''), 'direct');
+        ctx.setPromosHookType('custom');
+        ctx.document.getElementById('promosOpeningText').value = '';
+        assert.equal(ctx.promosEffectiveHookType(), 'steam_new_game');
+        ctx.document.getElementById('promosOpeningText').value = 'Campaign line.';
+        assert.equal(ctx.promosEffectiveHookType(), 'custom');
 
         // Render options: defaults, UI reading, persistence (and broken storage).
         assert.deepEqual({ ...ctx.loadStoredRenderOptions() }, { audio_normalize: true, audio_ducking: true, output_fps: 30 });
@@ -206,6 +218,19 @@ function baseContext(extra = {}) {
         assert.deepEqual({ ...ctx.loadStoredRenderOptions() }, { audio_normalize: true, audio_ducking: true, output_fps: 30 });
         assert.equal(ctx.normalizeCutStartMode('best_moment'), 'best_moment');
         assert.equal(ctx.normalizeCutStartMode(''), 'shot_start');
+
+        // SFX payload: without the splash the untouched default Raiser 1 is not sent;
+        // Raiser 2, added tracks and a Raiser 1 the user moved are always kept.
+        const r1 = { id: 'trk_raiser1', name: 'raiser1', relative_path: 'raisers/raiser1.wav', start_s: 0.0, volume: 0.80 };
+        const r2 = { id: 'trk_raiser2', name: 'raiser2', relative_path: 'raisers/raiser2.wav', start_s: 1.2, volume: 0.80 };
+        const whoosh = { id: 'trk_x', name: 'whoosh', relative_path: 'whoosh.wav', start_s: 0.0, volume: 0.8 };
+        const names = (tracks, splash) => [...ctx.sfxTracksRequestPayload(tracks, splash)].map(t => t.name);
+        assert.deepEqual(names([r1, r2, whoosh], true), ['raiser1', 'raiser2', 'whoosh']);
+        assert.deepEqual(names([r1, r2, whoosh], false), ['raiser2', 'whoosh']);
+        assert.deepEqual(names([{ ...r1, start_s: 0.5 }, r2], false), ['raiser1', 'raiser2']);
+        assert.deepEqual(names([{ ...r1, volume: 0.5 }], false), ['raiser1']);
+        assert.deepEqual({ ...ctx.sfxTracksRequestPayload([r2], false)[0] },
+            { name: 'raiser2', file: 'raisers/raiser2.wav', relative_path: 'raisers/raiser2.wav', start_s: 1.2, volume: 0.8 });
 
         // Render warnings: plain-text notice + one toast per warning; restore without toasts.
         const shown = ctx.showRenderWarnings({ warnings: ['No se pudieron quemar los subtítulos <b>', '', null, '60 fps no disponible: 30 fps'] }, 'promov3RenderWarnings');
@@ -377,6 +402,22 @@ function baseContext(extra = {}) {
         const third = FakeEventSource.instances.at(-1);
         third.emitMessage({ type: 'completed', result: { video_url: '/b.mp4' } });
         assert.equal(third.closed, true, 'stream is closed when the job finishes');
+
+        // Splash off: the default splash riser is not forced into the mix.
+        ctx.state.promov3.isStep5Running = false;
+        ctx.state.promov3.sfxTracks = [
+            { id: 'trk_raiser1', name: 'raiser1', relative_path: 'raisers/raiser1.wav', start_s: 0.0, volume: 0.80 },
+            { id: 'trk_raiser2', name: 'raiser2', relative_path: 'raisers/raiser2.wav', start_s: 1.0, volume: 0.80 },
+        ];
+        await ctx.runPromoV3Step5();
+        body = ctx.requests.filter(r => r.url === '/api/promov3/step5/render').at(-1).body;
+        assert.deepEqual(body.edl.sfx_tracks.map(t => t.name), ['raiser1', 'raiser2'], 'splash on keeps both raisers');
+        ctx.state.promov3.isStep5Running = false;
+        ctx.state.promov3.enableSteamHook = false;
+        await ctx.runPromoV3Step5();
+        body = ctx.requests.filter(r => r.url === '/api/promov3/step5/render').at(-1).body;
+        assert.equal(body.enable_steam_hook, false);
+        assert.deepEqual(body.edl.sfx_tracks.map(t => t.name), ['raiser2'], 'no splash: default Raiser 1 dropped');
     }
 
     // ------------------------------------------ Wizard: opening, voice speed, cut start
