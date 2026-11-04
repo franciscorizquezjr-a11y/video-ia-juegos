@@ -19,6 +19,9 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
+import json_store
+from json_store import JsonStoreError
+
 logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -101,6 +104,10 @@ class TrailerDatabaseManager:
     def __init__(self, db_file: Path = DB_PATH) -> None:
         self.db_file = Path(db_file)
         self.db_file.parent.mkdir(parents=True, exist_ok=True)
+        # Set when the DB file existed but could not be read. If the corrupt file
+        # could not be moved aside, saving is disabled so it is never overwritten.
+        self.load_error: str | None = None
+        self._save_blocked = False
         self.trailers = self._load()
 
     def _deduplicate(self, items: list[dict]) -> list[dict]:
@@ -115,23 +122,38 @@ class TrailerDatabaseManager:
         return unique
 
     def _load(self) -> list[dict]:
-        """Load JSON database file."""
-        if not self.db_file.exists():
-            return []
+        """Load JSON database file.
+
+        A missing file means an empty DB. A corrupt/unreadable file is moved aside to
+        ``<name>.corrupt-<timestamp>`` by json_store (never deleted); the manager then
+        starts empty. If it could not be moved aside, saving is blocked so the
+        original is never overwritten with an empty list.
+        """
         try:
-            with open(self.db_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                return self._deduplicate(data)
-        except Exception as e:
+            data = json_store.load_json(self.db_file, [])
+        except JsonStoreError as e:
             logger.error(f"Failed to read trailer DB at {self.db_file}: {e}")
+            self.load_error = str(e)
+            self._save_blocked = e.quarantined_path is None
             return []
+        if not isinstance(data, list):
+            logger.error(f"Trailer DB at {self.db_file} is not a JSON list; it will not be modified.")
+            self.load_error = f"{self.db_file.name} no contiene una lista JSON"
+            self._save_blocked = True
+            return []
+        return self._deduplicate(data)
 
     def save(self) -> None:
-        """Save trailers list to JSON database file."""
+        """Save trailers list to JSON database file (atomic write)."""
+        if self._save_blocked:
+            logger.error(
+                f"Not saving trailer DB at {self.db_file}: the existing file could not be read "
+                f"and was kept untouched ({self.load_error})."
+            )
+            return
         try:
             self.trailers = self._deduplicate(self.trailers)
-            with open(self.db_file, "w", encoding="utf-8") as f:
-                json.dump(self.trailers, f, indent=2, ensure_ascii=False)
+            json_store.save_json_atomic(self.db_file, self.trailers)
         except Exception as e:
             logger.error(f"Failed to save trailer DB at {self.db_file}: {e}")
 

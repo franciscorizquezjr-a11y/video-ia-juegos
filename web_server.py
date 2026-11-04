@@ -41,14 +41,19 @@ except Exception:
     pass
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query, BackgroundTasks
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response, JSONResponse, FileResponse, StreamingResponse, HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+import inspect
+import json_store
+from json_store import JsonStoreError
 from channel_branding import ChannelBrandingSettings, build_channel_badge
 from video_format_preferences import preferred_video_format
 
 from project_paths import APP_OUTPUT_DIR, WORK_OUTPUT_DIR, output_url, app_output_url
+from project_paths import validate_folder_name, safe_child_dir
 from config import AppConfig
 from pipeline import Pipeline
 from scraper import TrailerDatabaseManager, refresh_all_trailers
@@ -132,10 +137,123 @@ def local_app_health():
             "pid": os.getpid(), "ready": True}
 
 
-# Enable CORS for local cross-origin if needed
+# =============================================================================
+# Local-only access guard (CORS + DNS-rebinding + cross-site write protection)
+# =============================================================================
+# The app is a LOCAL tool: the browser UI is served from http://127.0.0.1:<port>
+# (or localhost) and automation such as Codex / curl / python scripts calls the
+# HTTP API directly WITHOUT an Origin header. Both keep working. What is blocked:
+#   * any web page on another origin reading responses (CORS limited to localhost),
+#   * DNS-rebinding (a foreign domain resolving to 127.0.0.1 → Host header check),
+#   * cross-site writes (POST/PUT/PATCH/DELETE with a foreign Origin or
+#     Sec-Fetch-Site: cross-site), e.g. a malicious page silently saving settings.
+# Extra hosts/origins (e.g. LAN access from a tablet) can be allowed explicitly with
+# the env vars IA_VIDEO_ALLOWED_HOSTS / IA_VIDEO_ALLOWED_ORIGINS (comma separated).
+
+_LOCAL_ORIGIN_REGEX = r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d{1,5})?$"
+_LOCAL_ORIGIN_RE = re.compile(_LOCAL_ORIGIN_REGEX, re.IGNORECASE)
+# "testserver" is the Host used by Starlette's TestClient (unit tests). It is a
+# single-label name that public DNS cannot serve, so it is not a rebinding vector.
+_DEFAULT_ALLOWED_HOSTS = {"localhost", "127.0.0.1", "[::1]", "::1", "testserver"}
+_UNSAFE_HTTP_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+def _env_csv(name: str) -> List[str]:
+    raw = os.environ.get(name, "") or ""
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+def _allowed_hosts() -> set:
+    return _DEFAULT_ALLOWED_HOSTS | {h.lower().rstrip(".") for h in _env_csv("IA_VIDEO_ALLOWED_HOSTS")}
+
+
+def _allowed_extra_origins() -> set:
+    return {o.rstrip("/").lower() for o in _env_csv("IA_VIDEO_ALLOWED_ORIGINS")}
+
+
+def _host_without_port(host_header: str) -> str:
+    """'localhost:8004' -> 'localhost', '[::1]:8004' -> '[::1]', '::1' -> '::1'."""
+    host = (host_header or "").strip().lower()
+    if host.startswith("["):
+        end = host.find("]")
+        return host[: end + 1] if end != -1 else host
+    if host.count(":") == 1:
+        host = host.split(":", 1)[0]
+    return host.rstrip(".")
+
+
+def _is_local_host_header(host_header: Optional[str]) -> bool:
+    if host_header is None:
+        # No Host header at all (raw HTTP/1.0 clients): browsers always send one,
+        # so this cannot be a DNS-rebinding request.
+        return True
+    return _host_without_port(host_header) in _allowed_hosts()
+
+
+def _is_local_origin(origin: str) -> bool:
+    origin = (origin or "").strip()
+    if _LOCAL_ORIGIN_RE.match(origin):
+        return True
+    return origin.rstrip("/").lower() in _allowed_extra_origins()
+
+
+def _local_request_rejection(method: str, headers: Dict[str, str]) -> Optional[Tuple[int, str]]:
+    """Return (status, message) when the request must be rejected, else None.
+
+    ``headers`` maps lower-case header names to values.
+    """
+    if not _is_local_host_header(headers.get("host")):
+        return 400, "Host no permitido: esta app solo acepta peticiones a localhost / 127.0.0.1."
+    if method.upper() in _UNSAFE_HTTP_METHODS:
+        origin = headers.get("origin")
+        if origin is not None and not _is_local_origin(origin):
+            return 403, "Origen no permitido: las peticiones de escritura solo se aceptan desde la propia app local."
+        # A browser that hides the Origin but reports a cross-site request is
+        # rejected too. An explicitly local Origin (e.g. localhost:8004 -> 127.0.0.1:8004,
+        # which browsers label "cross-site") is trusted, like CORS trusts it.
+        if origin is None and (headers.get("sec-fetch-site") or "").strip().lower() == "cross-site":
+            return 403, "Petición cross-site bloqueada por seguridad."
+    return None
+
+
+class LocalRequestGuardMiddleware:
+    """Pure ASGI middleware (does not wrap responses, so SSE streams and
+    StaticFiles range requests are untouched)."""
+
+    def __init__(self, app_):
+        self.app = app_
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") not in ("http", "websocket"):
+            await self.app(scope, receive, send)
+            return
+        headers: Dict[str, str] = {}
+        for raw_name, raw_value in scope.get("headers") or []:
+            name = raw_name.decode("latin-1").lower()
+            if name not in headers:
+                headers[name] = raw_value.decode("latin-1")
+        method = scope.get("method", "GET") if scope.get("type") == "http" else "POST"
+        rejection = _local_request_rejection(method, headers)
+        if rejection is None:
+            await self.app(scope, receive, send)
+            return
+        status_code, message = rejection
+        logger.warning(
+            f"Petición bloqueada ({status_code}) {method} {scope.get('path')} "
+            f"host={headers.get('host')!r} origin={headers.get('origin')!r}"
+        )
+        if scope.get("type") == "websocket":
+            await send({"type": "websocket.close", "code": 1008})
+            return
+        response = JSONResponse(status_code=status_code, content={"status": "error", "detail": message, "message": message})
+        await response(scope, receive, send)
+
+
+# CORS: only the app's own local origins (any port) may read responses cross-origin.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origin_regex=_LOCAL_ORIGIN_REGEX,
+    allow_origins=sorted(_allowed_extra_origins()),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -152,25 +270,100 @@ async def no_cache_static_middleware(request, call_next):
         response.headers["Expires"] = "0"
     return response
 
+
+# Added last so it is the OUTERMOST layer: rejected requests never reach CORS,
+# the no-cache middleware or any endpoint.
+app.add_middleware(LocalRequestGuardMiddleware)
+
+
+@app.exception_handler(JsonStoreError)
+async def _json_store_error_handler(request, exc: JsonStoreError):
+    """A corrupt data file is reported clearly instead of being silently wiped."""
+    logger.error(f"Archivo de datos ilegible: {exc}")
+    return JSONResponse(status_code=500, content={"status": "error", "detail": str(exc), "message": str(exc)})
+
 # Ensure directories exist
 for d in ["data", "output", "temp", "temp/benchmarks", "temp/uploads", "input", "Presets", "static", "GamesFootage", "PromosFootage"]:
     (BASE_DIR / d).mkdir(parents=True, exist_ok=True)
 
 # Safely clean up truly obsolete temporary uploads (older than 48 hours) to prevent disk buildup without deleting active session files
-_uploads_dir = BASE_DIR / "temp" / "uploads"
-if _uploads_dir.exists():
-    import time
-    _now = time.time()
-    _purged_count = 0
-    for _f in _uploads_dir.iterdir():
+def _collect_json_strings(node: Any, out: set) -> None:
+    if isinstance(node, str):
+        out.add(node)
+    elif isinstance(node, dict):
+        for k, v in node.items():
+            if isinstance(k, str):
+                out.add(k)
+            _collect_json_strings(v, out)
+    elif isinstance(node, (list, tuple)):
+        for v in node:
+            _collect_json_strings(v, out)
+
+
+def _referenced_upload_names(cache_dir: Path, extra_json_files: Optional[List[Path]] = None) -> set:
+    """Names (and stems) of files mentioned anywhere in the session JSON files.
+
+    Raises on ANY read/parse problem so the caller can skip deletion entirely.
+    """
+    names: set = set()
+    json_files: List[Path] = []
+    if cache_dir.exists():
+        json_files.extend(sorted(cache_dir.glob("*/*.json")))
+    for extra in extra_json_files or []:
+        if extra.exists():
+            json_files.append(extra)
+    for jf in json_files:
+        with open(jf, "r", encoding="utf-8-sig") as fh:
+            data = json.load(fh)
+        strings: set = set()
+        _collect_json_strings(data, strings)
+        for s in strings:
+            if not s or len(s) > 4096:
+                continue
+            tail = urllib.parse.unquote(s.split("?", 1)[0]).replace("\\", "/").rstrip("/")
+            base = tail.rsplit("/", 1)[-1]
+            if base:
+                names.add(base.casefold())
+                names.add(Path(base).stem.casefold())
+    return names
+
+
+def _cleanup_stale_uploads(uploads_dir: Path, cache_dir: Path, max_age_s: float = 48 * 3600,
+                           extra_json_files: Optional[List[Path]] = None) -> int:
+    """Delete temp/uploads files older than ``max_age_s`` that no session references.
+
+    If the session JSON files cannot be scanned, nothing is deleted.
+    """
+    if not uploads_dir.exists():
+        return 0
+    try:
+        referenced = _referenced_upload_names(cache_dir, extra_json_files)
+    except Exception as scan_err:
+        logger.warning(f"Limpieza de temp/uploads omitida: no se pudieron revisar las sesiones guardadas ({scan_err}).")
+        return 0
+    now_ts = time.time()
+    purged = 0
+    for f in uploads_dir.iterdir():
         try:
-            if _f.is_file() and (_now - _f.stat().st_mtime > 48 * 3600):
-                _f.unlink()
-                _purged_count += 1
+            if not f.is_file() or (now_ts - f.stat().st_mtime) <= max_age_s:
+                continue
+            if f.name.casefold() in referenced or f.stem.casefold() in referenced:
+                continue
+            f.unlink()
+            purged += 1
         except Exception:
             pass
-    if _purged_count > 0:
-        logger.info(f"Limpiados {_purged_count} archivos obsoletos (>48h) de temp/uploads.")
+    return purged
+
+
+_uploads_dir = BASE_DIR / "temp" / "uploads"
+_purged_count = _cleanup_stale_uploads(
+    _uploads_dir,
+    BASE_DIR / "temp" / "v3_cache",
+    extra_json_files=[BASE_DIR / "data" / "batch_queue.json"],
+)
+if _purged_count > 0:
+    logger.info(f"Limpiados {_purged_count} archivos obsoletos (>48h) de temp/uploads.")
 
 # File paths
 BATCH_QUEUE_FILE = BASE_DIR / "data" / "batch_queue.json"
@@ -192,6 +385,8 @@ class Job:
         self.error: Optional[str] = None
         self.subscribers: List[Tuple[asyncio.Queue, asyncio.AbstractEventLoop]] = []
         self.lock = threading.Lock()
+        self.created_at = time.time()
+        self.finished_at: Optional[float] = None
 
     def update(self, progress: float, message: str, log: Optional[str] = None):
         with self.lock:
@@ -216,6 +411,7 @@ class Job:
             self.progress = 100.0
             self.message = message
             self.result = result
+            self.finished_at = time.time()
             payload = {
                 "type": "completed",
                 "job_id": self.job_id,
@@ -231,6 +427,7 @@ class Job:
             self.status = "error"
             self.error = error
             self.message = f"Error: {error}"
+            self.finished_at = time.time()
             payload = {
                 "type": "error",
                 "job_id": self.job_id,
@@ -286,12 +483,59 @@ class Job:
 
 
 ACTIVE_JOBS: Dict[str, Job] = {}
+_ACTIVE_JOBS_LOCK = threading.Lock()
+JOB_RETENTION_SECONDS = 6 * 3600
+JOB_MAX_FINISHED = 200
+
+
+def _job_finished_at(job: Job) -> Optional[float]:
+    """Time a job finished (completed/error), or None while it is running."""
+    if job.status == "running":
+        return None
+    finished = getattr(job, "finished_at", None)
+    if finished is None:
+        # First time we see it finished: stamp it now (Job.complete/fail predate this field).
+        finished = time.time()
+        try:
+            job.finished_at = finished
+        except Exception:
+            pass
+    return finished
+
+
+def _evict_finished_jobs(now: Optional[float] = None,
+                         max_age_s: float = JOB_RETENTION_SECONDS,
+                         max_finished: int = JOB_MAX_FINISHED) -> int:
+    """Drop finished jobs older than ``max_age_s`` or beyond the newest ``max_finished``.
+
+    Running jobs are never evicted. Returns how many jobs were removed.
+    """
+    now = time.time() if now is None else now
+    with _ACTIVE_JOBS_LOCK:
+        finished = []
+        for jid, jb in list(ACTIVE_JOBS.items()):
+            f_at = _job_finished_at(jb)
+            if f_at is not None:
+                finished.append((f_at, jid))
+        finished.sort(reverse=True)  # newest first
+        to_remove = set()
+        for idx, (f_at, jid) in enumerate(finished):
+            if idx >= max_finished or (now - f_at) > max_age_s:
+                to_remove.add(jid)
+        for jid in to_remove:
+            ACTIVE_JOBS.pop(jid, None)
+        return len(to_remove)
 
 
 def create_job(job_type: str) -> Job:
+    try:
+        _evict_finished_jobs()
+    except Exception as evict_err:
+        logger.debug(f"No se pudo podar el registro de trabajos: {evict_err}")
     job_id = f"{job_type}_{uuid.uuid4().hex[:8]}"
     job = Job(job_id, job_type)
-    ACTIVE_JOBS[job_id] = job
+    with _ACTIVE_JOBS_LOCK:
+        ACTIVE_JOBS[job_id] = job
     return job
 
 
@@ -299,19 +543,40 @@ def create_job(job_type: str) -> Job:
 # Helper Functions: Batch Queue & Presets
 # =============================================================================
 
+def _load_list_state(path: Path) -> List[Any]:
+    """Load a JSON list state file. Missing file -> []; corrupt file -> moved aside
+    to <name>.corrupt-<timestamp> and JsonStoreError raised (never silently wiped)."""
+    data = json_store.load_json(path, [])
+    if isinstance(data, list):
+        return data
+    raise JsonStoreError(
+        f"El archivo de datos '{path.name}' no contiene una lista JSON; no se ha modificado.", path
+    )
+
+
+def _state_locked(*paths: Path):
+    """Run a sync endpoint while holding the json_store lock of each state file, so
+    concurrent load -> modify -> save cycles on the same file cannot lose writes."""
+    import contextlib
+    import functools
+
+    def deco(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            with contextlib.ExitStack() as stack:
+                for state_path in paths:
+                    stack.enter_context(json_store.lock_for(state_path))
+                return fn(*args, **kwargs)
+        return wrapper
+    return deco
+
+
 def load_batch_queue() -> List[Dict[str, Any]]:
-    if BATCH_QUEUE_FILE.exists():
-        try:
-            with open(BATCH_QUEUE_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return []
-    return []
+    return _load_list_state(BATCH_QUEUE_FILE)
 
 
 def save_batch_queue(items: List[Dict[str, Any]]):
-    with open(BATCH_QUEUE_FILE, "w", encoding="utf-8") as f:
-        json.dump(items, f, indent=2, ensure_ascii=False)
+    json_store.save_json_atomic(BATCH_QUEUE_FILE, items)
 
 
 def get_all_presets() -> Dict[str, Any]:
@@ -471,6 +736,9 @@ class ConfigUpdateRequest(BaseModel):
     gemini_api_key: Optional[str] = None
     elevenlabs_api_key: Optional[str] = None
     elevenlabs_voice_id: Optional[str] = None
+    # Explicitly empty these keys (field names, e.g. ["groq_api_key"]). Empty or
+    # masked values in the fields above are ignored instead of erasing keys.
+    clear_keys: Optional[List[str]] = None
 
 class V1ProcessTrailerRequest(BaseModel):
     url: str
@@ -483,7 +751,13 @@ class V2ScriptGenerateRequest(BaseModel):
     game_name: str
     target_duration: float = 30.0
     tone: Optional[str] = "viral_hype"
+    # "steam_new_game" (default, required by Trapster campaigns), "so_in_this_new_game",
+    # "direct" (no formulaic opener) or "custom" (starts exactly with opening_text).
     hook_type: Optional[str] = "steam_new_game"
+    opening_text: Optional[str] = ""
+    # Voice speed the narration will use (word budget must match it). None -> the
+    # session's saved voice speed, else 1.1.
+    speech_speed: Optional[float] = None
     script_mode: Literal["normal", "caveman"] = "normal"
     game_genre: str = ""
     briefing_text: Optional[str] = ""
@@ -508,6 +782,7 @@ class PromoV3Step3SaveRequest(BaseModel):
     video_paths: Optional[List[str]] = None
     game_name: str
     hook_type: str = "steam_new_game"
+    opening_text: Optional[str] = ""
     tone: str = "viral_hype"
     target_duration: float = 30.0
     briefing_text: Optional[str] = ""
@@ -533,6 +808,7 @@ class PromoV3SynthesizeVoiceRequest(BaseModel):
     voice_id: Optional[str] = None
     speed: Optional[float] = 1.1
     stability: Optional[float] = 0.5
+    similarity_boost: Optional[float] = 0.75
 
 
 class PromoV3Step4OrchestrateRequest(BaseModel):
@@ -550,6 +826,9 @@ class PromoV3Step4OrchestrateRequest(BaseModel):
     sentence_1_end_s: Optional[float] = None
     hook_duration: Optional[float] = None
     video_format: Optional[str] = None
+    # "shot_start" (default: cut starts at the shot start) or "best_moment"
+    # (start inside the shot at a stronger moment, never leaving the shot bounds).
+    cut_start_mode: Optional[str] = "shot_start"
 
 
 class PromoV3Step4SaveRequest(BaseModel):
@@ -592,6 +871,11 @@ class PromoV3Step5RenderRequest(BaseModel):
     game_name_reveal_y: Optional[int] = 800
     game_name_reveal_scale: Optional[float] = 1.0
     custom_game_logo_path: Optional[str] = None
+    # Final master: loudness normalization (-14 LUFS / -1 dBTP) and voice ducking.
+    audio_normalize: bool = True
+    audio_ducking: bool = True
+    # 30 or 60 (60 only when the source has >= 50 fps; otherwise 30 + warning).
+    output_fps: int = 30
 
 
 class PromoV3Step5SaveRequest(BaseModel):
@@ -631,7 +915,8 @@ class PromoProcessRequest(BaseModel):
     captions_highlight_color: Optional[str] = "#FFF380"  # Hex color of active/emphasized words
     captions_y_position: Optional[int] = 600  # Vertical distance from bottom edge (ASS MarginV in 1080p)
     gameplay_volume: Optional[float] = 0.15  # Volume of background gameplay audio (0.0 to 1.0)
-    hook_type: Optional[str] = "steam_new_game"  # "steam_new_game", "so_in_this_new_game"
+    hook_type: Optional[str] = "steam_new_game"  # "steam_new_game", "so_in_this_new_game", "direct", "custom"
+    opening_text: Optional[str] = ""  # opener used when hook_type == "custom"
     # Steam Hook Visual Customizer
     steam_logo_scale: Optional[float] = 1.3
     steam_logo_y: Optional[int] = 540
@@ -666,64 +951,194 @@ class PromoProcessRequest(BaseModel):
 # API Endpoints: System & Config
 # =============================================================================
 
+# Secrets are never sent back to the browser in clear text: GET endpoints return
+# "••••" + last 4 chars, and every endpoint that accepts a key from the client
+# falls back to the server-side .env value when the client sends nothing or a mask.
+ENV_FILE_PATH = BASE_DIR / ".env"
+SECRET_MASK_CHAR = "\u2022"  # "•"
+_ENV_KEY_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
+
+
+def _mask_secret(value: Optional[str]) -> str:
+    """'abcd1234wxyz' -> '••••wxyz'; '' -> ''."""
+    v = (value or "").strip()
+    if not v:
+        return ""
+    return SECRET_MASK_CHAR * 4 + (v[-4:] if len(v) > 4 else "")
+
+
+def _is_unusable_secret(value: Optional[str]) -> bool:
+    """True for None, blank strings and masked placeholders ("••••1234")."""
+    return value is None or not str(value).strip() or SECRET_MASK_CHAR in str(value)
+
+
+def _client_secret_or_env(client_value: Optional[str], server_value: Optional[str]) -> str:
+    """Prefer a real key typed by the client; otherwise use the server-side key."""
+    if not _is_unusable_secret(client_value):
+        return str(client_value).strip()
+    return (server_value or "").strip()
+
+
+def _validate_env_value(name: str, value: str) -> None:
+    if any(ch in value for ch in ("\r", "\n", "\x00")):
+        raise HTTPException(status_code=400, detail=f"Valor inválido para {name}: no puede contener saltos de línea.")
+
+
+def _update_env_file(updates: Dict[str, str], env_path: Optional[Path] = None) -> List[str]:
+    """Set KEY=value lines in .env atomically (temp file in the same folder + os.replace).
+
+    Other lines (comments, unrelated keys) and their line endings are preserved.
+    Returns the list of keys written. Also mirrors the values into os.environ.
+    """
+    env_path = Path(env_path or ENV_FILE_PATH)
+    for name, value in updates.items():
+        if not _ENV_KEY_NAME_RE.match(name):
+            raise HTTPException(status_code=400, detail=f"Nombre de variable inválido: {name}")
+        _validate_env_value(name, value)
+    if not updates:
+        return []
+    import tempfile
+    with json_store.lock_for(env_path):
+        lines: List[str] = []
+        if env_path.exists():
+            with open(env_path, "r", encoding="utf-8-sig", newline="") as f:
+                lines = f.readlines()
+        eol = "\r\n" if any(line.endswith("\r\n") for line in lines) else "\n"
+        patterns = {k: re.compile(r"^\s*(?:export\s+)?" + re.escape(k) + r"\s*=") for k in updates}
+        new_lines: List[str] = []
+        seen = set()
+        for line in lines:
+            replaced = False
+            for k, v in updates.items():
+                if patterns[k].match(line):
+                    new_lines.append(f"{k}={v}{eol}")
+                    seen.add(k)
+                    replaced = True
+                    break
+            if not replaced:
+                new_lines.append(line)
+        missing = [k for k in updates if k not in seen]
+        if missing and new_lines and not new_lines[-1].endswith("\n"):
+            new_lines[-1] += eol
+        for k in missing:
+            new_lines.append(f"{k}={updates[k]}{eol}")
+        env_path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp_name = tempfile.mkstemp(prefix=".env.", suffix=".tmp", dir=str(env_path.parent))
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
+                f.writelines(new_lines)
+            os.replace(tmp_name, str(env_path))
+        except BaseException:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+            raise
+    # Keep future clients in this process aligned with the newly saved keys.
+    for key, value in updates.items():
+        os.environ[key] = str(value)
+    return list(updates.keys())
+
+
+def _collect_env_updates(candidates: Dict[str, Optional[str]], clear_keys: Optional[List[str]],
+                         field_to_env: Dict[str, str]) -> Tuple[Dict[str, str], List[str]]:
+    """Filter client values: masked / empty / None are ignored (never overwrite a real
+    key with its mask); names listed in clear_keys are explicitly emptied."""
+    updates: Dict[str, str] = {}
+    ignored: List[str] = []
+    for env_name, value in candidates.items():
+        if _is_unusable_secret(value):
+            if value is not None:
+                ignored.append(env_name)
+            continue
+        value = str(value).strip()
+        _validate_env_value(env_name, value)
+        updates[env_name] = value
+    for field_name in clear_keys or []:
+        env_name = field_to_env.get(str(field_name).strip().lower()) or (
+            str(field_name).strip().upper() if str(field_name).strip().upper() in field_to_env.values() else None)
+        if env_name and env_name not in updates:
+            updates[env_name] = ""
+    return updates, ignored
+
+
+def _config_key_status() -> Dict[str, Any]:
+    """Masked keys + *_set booleans. Works even when .env is incomplete."""
+    try:
+        config = AppConfig.from_env()
+        groq, gemini, eleven = config.groq_api_key, config.gemini_api_key, config.elevenlabs_api_key
+        voice_id = config.elevenlabs_voice_id
+        extra = {
+            "output_dir": str(config.output_dir),
+            "video_style": config.video_style,
+            "default_resolution": f"{config.output_width}x{config.output_height}",
+        }
+    except Exception as cfg_err:
+        # Fresh install / missing required keys: still let the Settings page load.
+        logger.info(f"Configuración incompleta al leer /api/config: {cfg_err}")
+        try:
+            from dotenv import load_dotenv
+            load_dotenv(ENV_FILE_PATH)
+        except Exception:
+            pass
+        groq = os.environ.get("GROQ_API_KEY", "")
+        gemini = os.environ.get("GEMINI_API_KEY", "")
+        eleven = os.environ.get("ELEVENLABS_API_KEY", "")
+        voice_id = os.environ.get("ELEVENLABS_VOICE_ID", "")
+        extra = {
+            "output_dir": str(APP_OUTPUT_DIR),
+            "video_style": os.environ.get("VIDEO_STYLE", "vertical_full"),
+            "default_resolution": f"{os.environ.get('OUTPUT_WIDTH', '1080')}x{os.environ.get('OUTPUT_HEIGHT', '1920')}",
+        }
+    return {
+        "groq_api_key": _mask_secret(groq),
+        "gemini_api_key": _mask_secret(gemini),
+        "elevenlabs_api_key": _mask_secret(eleven),
+        "groq_api_key_set": bool((groq or "").strip()),
+        "gemini_api_key_set": bool((gemini or "").strip()),
+        "elevenlabs_api_key_set": bool((eleven or "").strip()),
+        "elevenlabs_voice_id": voice_id or "21m00Tcm4TlvDq8ikWAM",
+        **extra,
+    }
+
+
 @app.get("/api/config")
 def get_config():
-    """Get active configuration values from environment or AppConfig."""
-    config = AppConfig.from_env()
-    return {
-        "groq_api_key": config.groq_api_key or "",
-        "gemini_api_key": config.gemini_api_key or "",
-        "elevenlabs_api_key": config.elevenlabs_api_key or "",
-        "elevenlabs_voice_id": config.elevenlabs_voice_id or "21m00Tcm4TlvDq8ikWAM",
-        "output_dir": str(config.output_dir),
-        "video_style": config.video_style,
-        "default_resolution": f"{config.output_width}x{config.output_height}",
-    }
+    """Get active configuration. API keys are MASKED ("••••" + last 4 chars)."""
+    return _config_key_status()
+
+
+_CONFIG_FIELD_TO_ENV = {
+    "groq_api_key": "GROQ_API_KEY",
+    "gemini_api_key": "GEMINI_API_KEY",
+    "elevenlabs_api_key": "ELEVENLABS_API_KEY",
+    "elevenlabs_voice_id": "ELEVENLABS_VOICE_ID",
+}
 
 
 @app.post("/api/config")
 def update_config(req: ConfigUpdateRequest):
-    """Update config API keys into .env file."""
-    env_path = BASE_DIR / ".env"
-    lines = []
-    if env_path.exists():
-        with open(env_path, "r", encoding="utf-8") as f:
-            lines = f.readlines()
-    
-    settings = {
+    """Update config API keys into .env file.
+
+    Values that are None, empty or masked placeholders (contain "•") are ignored, so
+    saving the Settings form never replaces a real key with its mask. Use
+    ``clear_keys`` (e.g. ["groq_api_key"]) to explicitly empty a key.
+    """
+    candidates = {
         "GROQ_API_KEY": req.groq_api_key,
         "GEMINI_API_KEY": req.gemini_api_key,
         "ELEVENLABS_API_KEY": req.elevenlabs_api_key,
         "ELEVENLABS_VOICE_ID": req.elevenlabs_voice_id,
     }
-    
-    settings = {k: v for k, v in settings.items() if v is not None}
-    
-    new_lines = []
-    seen = set()
-    for line in lines:
-        matched = False
-        for k, v in settings.items():
-            if line.startswith(f"{k}="):
-                new_lines.append(f"{k}={v}\n")
-                seen.add(k)
-                matched = True
-                break
-        if not matched:
-            new_lines.append(line)
-            
-    for k, v in settings.items():
-        if k not in seen:
-            new_lines.append(f"{k}={v}\n")
-            
-    with open(env_path, "w", encoding="utf-8") as f:
-        f.writelines(new_lines)
-
-    # Keep future clients in this process aligned with the newly saved keys.
-    for key, value in settings.items():
-        os.environ[key] = str(value)
-
-    return {"status": "ok", "message": "Configuración guardada en .env"}
+    updates, ignored = _collect_env_updates(candidates, req.clear_keys, _CONFIG_FIELD_TO_ENV)
+    written = _update_env_file(updates)
+    return {
+        "status": "ok",
+        "message": "Configuración guardada en .env" if written else "Sin cambios: las claves existentes se conservan.",
+        "updated_keys": written,
+        "ignored_keys": ignored,
+        **_config_key_status(),
+    }
 
 
 class ApiUsageBudgetRequest(BaseModel):
@@ -839,23 +1254,11 @@ def _normalize_date_to_dmy(d_str: str) -> str:
 
 
 def _load_calendar_events_data() -> List[dict]:
-    if not CALENDAR_DATA_FILE.exists():
-        return []
-    try:
-        with open(CALENDAR_DATA_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            if isinstance(data, list):
-                return data
-            return []
-    except Exception as e:
-        logger.warning(f"Error loading calendar events from {CALENDAR_DATA_FILE}: {e}")
-        return []
+    return _load_list_state(CALENDAR_DATA_FILE)
 
 
 def _save_calendar_events_data(events: List[dict]):
-    CALENDAR_DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(CALENDAR_DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(events, f, indent=2, ensure_ascii=False)
+    json_store.save_json_atomic(CALENDAR_DATA_FILE, events)
 
 
 @app.get("/api/calendar")
@@ -866,6 +1269,7 @@ def get_calendar_events():
 
 
 @app.post("/api/calendar")
+@_state_locked(CALENDAR_DATA_FILE)
 def create_or_update_calendar_event(item: CalendarEventItem):
     """Create or update a scheduled video upload event in the calendar."""
     events = _load_calendar_events_data()
@@ -903,6 +1307,7 @@ def create_or_update_calendar_event(item: CalendarEventItem):
 
 
 @app.delete("/api/calendar/{event_id}")
+@_state_locked(CALENDAR_DATA_FILE)
 def delete_calendar_event(event_id: str):
     """Delete a scheduled calendar event."""
     events = _load_calendar_events_data()
@@ -934,23 +1339,11 @@ class ScheduleBlockItem(BaseModel):
 
 
 def _load_schedule_blocks_data() -> List[dict]:
-    if not SCHEDULE_DATA_FILE.exists():
-        return []
-    try:
-        with open(SCHEDULE_DATA_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            if isinstance(data, list):
-                return data
-            return []
-    except Exception as e:
-        logger.warning(f"Error loading schedule blocks from {SCHEDULE_DATA_FILE}: {e}")
-        return []
+    return _load_list_state(SCHEDULE_DATA_FILE)
 
 
 def _save_schedule_blocks_data(blocks: List[dict]):
-    SCHEDULE_DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(SCHEDULE_DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(blocks, f, indent=2, ensure_ascii=False)
+    json_store.save_json_atomic(SCHEDULE_DATA_FILE, blocks)
 
 
 @app.get("/api/schedule")
@@ -961,6 +1354,7 @@ def get_schedule_blocks():
 
 
 @app.post("/api/schedule")
+@_state_locked(SCHEDULE_DATA_FILE)
 def create_or_update_schedule_block(item: ScheduleBlockItem):
     """Create or update a scheduled time block."""
     blocks = _load_schedule_blocks_data()
@@ -995,6 +1389,7 @@ def create_or_update_schedule_block(item: ScheduleBlockItem):
 
 
 @app.delete("/api/schedule/{block_id}")
+@_state_locked(SCHEDULE_DATA_FILE)
 def delete_schedule_block(block_id: str):
     """Delete a schedule time block."""
     blocks = _load_schedule_blocks_data()
@@ -1007,6 +1402,7 @@ def delete_schedule_block(block_id: str):
 
 
 @app.post("/api/schedule/batch")
+@_state_locked(SCHEDULE_DATA_FILE)
 def batch_save_schedule_blocks(payload: Dict[str, Any]):
     """Batch save or replace all schedule blocks."""
     blocks = payload.get("blocks", [])
@@ -1017,6 +1413,7 @@ def batch_save_schedule_blocks(payload: Dict[str, Any]):
 
 
 @app.post("/api/schedule/clear")
+@_state_locked(SCHEDULE_DATA_FILE)
 def clear_all_schedule_blocks():
     """Clear all blocks from the weekly schedule."""
     _save_schedule_blocks_data([])
@@ -1048,24 +1445,18 @@ class ScheduleCategoryItem(BaseModel):
 
 
 def _load_schedule_categories_data() -> List[dict]:
-    if not SCHEDULE_CATEGORIES_FILE.exists():
-        _save_schedule_categories_data(DEFAULT_CATEGORIES)
-        return list(DEFAULT_CATEGORIES)
-    try:
-        with open(SCHEDULE_CATEGORIES_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            if isinstance(data, list) and len(data) > 0:
-                return data
-            return list(DEFAULT_CATEGORIES)
-    except Exception as e:
-        logger.warning(f"Error loading schedule categories: {e}")
-        return list(DEFAULT_CATEGORIES)
+    with json_store.lock_for(SCHEDULE_CATEGORIES_FILE):
+        if not SCHEDULE_CATEGORIES_FILE.exists():
+            _save_schedule_categories_data(DEFAULT_CATEGORIES)
+            return [dict(c) for c in DEFAULT_CATEGORIES]
+        data = _load_list_state(SCHEDULE_CATEGORIES_FILE)
+        if len(data) > 0:
+            return data
+        return [dict(c) for c in DEFAULT_CATEGORIES]
 
 
 def _save_schedule_categories_data(categories: List[dict]):
-    SCHEDULE_CATEGORIES_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(SCHEDULE_CATEGORIES_FILE, "w", encoding="utf-8") as f:
-        json.dump(categories, f, indent=2, ensure_ascii=False)
+    json_store.save_json_atomic(SCHEDULE_CATEGORIES_FILE, categories)
 
 
 @app.get("/api/schedule/categories")
@@ -1076,6 +1467,7 @@ def get_schedule_categories():
 
 
 @app.post("/api/schedule/categories")
+@_state_locked(SCHEDULE_CATEGORIES_FILE)
 def create_or_update_schedule_category(item: ScheduleCategoryItem):
     """Create or update a schedule category."""
     categories = _load_schedule_categories_data()
@@ -1104,6 +1496,7 @@ def create_or_update_schedule_category(item: ScheduleCategoryItem):
 
 
 @app.delete("/api/schedule/categories/{cat_id}")
+@_state_locked(SCHEDULE_CATEGORIES_FILE)
 def delete_schedule_category(cat_id: str):
     """Delete a custom schedule category."""
     categories = _load_schedule_categories_data()
@@ -1116,6 +1509,7 @@ def delete_schedule_category(cat_id: str):
 
 
 @app.post("/api/schedule/categories/reset")
+@_state_locked(SCHEDULE_CATEGORIES_FILE)
 def reset_schedule_categories():
     """Reset categories to default presets."""
     _save_schedule_categories_data(DEFAULT_CATEGORIES)
@@ -1141,10 +1535,14 @@ def get_elevenlabs_voices(api_key: Optional[str] = Query(None)):
     """Fetch available voices directly from ElevenLabs official endpoint (GET /v1/voices)."""
     import requests
     
-    key_to_use = api_key.strip() if isinstance(api_key, str) else ""
-    if not key_to_use:
-        cfg = AppConfig.from_env()
-        key_to_use = (cfg.elevenlabs_api_key or "").strip()
+    key_to_use = _client_secret_or_env(api_key, os.environ.get("ELEVENLABS_API_KEY", ""))
+    if _is_unusable_secret(api_key):
+        try:
+            cfg = AppConfig.from_env()
+            key_to_use = (cfg.elevenlabs_api_key or key_to_use or "").strip()
+        except Exception:
+            # from_env() loads .env before validating: re-read the server-side key.
+            key_to_use = (os.environ.get("ELEVENLABS_API_KEY", "") or "").strip()
     
     if not key_to_use:
         return JSONResponse(
@@ -1237,10 +1635,14 @@ def test_elevenlabs_speech(req: ElevenLabsTestSpeechRequest):
     """Synthesize a short sample phrase to test voice availability and license tier."""
     import requests
     
-    key_to_use = (req.api_key or "").strip()
-    if not key_to_use:
-        cfg = AppConfig.from_env()
-        key_to_use = (cfg.elevenlabs_api_key or "").strip()
+    key_to_use = _client_secret_or_env(req.api_key, os.environ.get("ELEVENLABS_API_KEY", ""))
+    if _is_unusable_secret(req.api_key):
+        try:
+            cfg = AppConfig.from_env()
+            key_to_use = (cfg.elevenlabs_api_key or key_to_use or "").strip()
+        except Exception:
+            # from_env() loads .env before validating: re-read the server-side key.
+            key_to_use = (os.environ.get("ELEVENLABS_API_KEY", "") or "").strip()
         
     if not key_to_use:
         return JSONResponse(
@@ -1364,6 +1766,7 @@ class ManualInsightPayload(BaseModel):
 class GamedevSettingsPayload(BaseModel):
     scrapecreators_api_key: Optional[str] = None
     steamworks_api_key: Optional[str] = None
+    clear_keys: Optional[List[str]] = None  # e.g. ["steamworks_api_key"] to empty it explicitly
 
 
 class UpdateWishlistsPayload(BaseModel):
@@ -1387,26 +1790,51 @@ def _sanitize_folder_name(name: str) -> str:
     return cleaned
 
 
+_WINDOWS_RESERVED_NAMES = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
+
+
+def _safe_upload_basename(filename: Optional[str], default_stem: str = "upload", max_len: int = 180) -> str:
+    """Reduce a client-supplied file name to a safe bare file name (no folders,
+    no '..', no characters Windows rejects, no reserved device names)."""
+    raw = str(filename or "").replace("\\", "/").split("/")[-1]
+    cleaned = re.sub(r'[<>:"/\\|?*]', "_", raw)
+    cleaned = "".join(ch for ch in cleaned if ord(ch) >= 32).strip().strip(". ")
+    if not cleaned or set(cleaned) <= {"."}:
+        cleaned = f"{default_stem}_{uuid.uuid4().hex[:6]}"
+    stem, dot, ext = cleaned.rpartition(".")
+    if not dot:
+        stem, ext = cleaned, ""
+    if stem.split(".")[0].upper() in _WINDOWS_RESERVED_NAMES:
+        cleaned = "_" + cleaned
+    if len(cleaned) > max_len:
+        ext_part = ("." + ext[:16]) if dot and ext else ""
+        cleaned = cleaned[: max_len - len(ext_part)].rstrip(". ") + ext_part
+    return cleaned
+
+
+def _safe_child_path(directory: Path, name: str) -> Path:
+    """directory/name, guaranteed to resolve to a direct child of ``directory``."""
+    base = Path(directory).resolve()
+    target = (base / name).resolve()
+    if target.parent != base:
+        raise HTTPException(status_code=400, detail="Nombre de archivo inválido.")
+    return target
+
+
+def _write_bytes_file(path: Path, data: bytes) -> None:
+    with open(path, "wb") as fh:
+        fh.write(data)
+
+
 def _load_gamedev_games() -> List[Dict[str, Any]]:
-    if not GAMEDEV_GAMES_FILE.exists():
-        try:
-            with open(GAMEDEV_GAMES_FILE, "w", encoding="utf-8") as f:
-                json.dump([], f)
-        except Exception:
-            pass
-        return []
-    try:
-        with open(GAMEDEV_GAMES_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception as e:
-        logger.error(f"Error loading gamedev_games.json: {e}")
-        return []
+    # Missing file -> [] (the file is created on the first save). A corrupt file is
+    # moved aside and reported instead of being replaced by an empty list.
+    return _load_list_state(GAMEDEV_GAMES_FILE)
 
 
 def _save_gamedev_games(games: List[Dict[str, Any]]) -> None:
     try:
-        with open(GAMEDEV_GAMES_FILE, "w", encoding="utf-8") as f:
-            json.dump(games, f, indent=2, ensure_ascii=False)
+        json_store.save_json_atomic(GAMEDEV_GAMES_FILE, games)
     except Exception as e:
         logger.error(f"Error saving gamedev_games.json: {e}")
 
@@ -1477,6 +1905,7 @@ def get_gamedev_games():
 
 
 @app.post("/api/gamedev/games")
+@_state_locked(GAMEDEV_GAMES_FILE)
 def create_gamedev_game(payload: GameProfilePayload):
     """Create a new game profile, automatically creating and assigning its folder in GamesFootage."""
     name = payload.name.strip()
@@ -1539,6 +1968,7 @@ def create_gamedev_game(payload: GameProfilePayload):
 
 
 @app.put("/api/gamedev/games/{game_id}")
+@_state_locked(GAMEDEV_GAMES_FILE)
 def update_gamedev_game(game_id: str, payload: GameProfilePayload):
     """Update an existing game profile and ensure its footage directory exists."""
     name = payload.name.strip()
@@ -1599,6 +2029,7 @@ def update_gamedev_game(game_id: str, payload: GameProfilePayload):
 
 
 @app.delete("/api/gamedev/games/{game_id}")
+@_state_locked(GAMEDEV_GAMES_FILE)
 def delete_gamedev_game(game_id: str):
     """Delete a game profile."""
     games = _load_gamedev_games()
@@ -1633,6 +2064,7 @@ def _format_file_size(size_in_bytes: int) -> str:
 
 
 @app.get("/api/gamedev/games/{game_id}/footage")
+@_state_locked(GAMEDEV_GAMES_FILE)
 def get_game_footage(game_id: str):
     """Scan and list all footage video clips inside the game's designated folder."""
     games = _load_gamedev_games()
@@ -1705,19 +2137,18 @@ async def upload_game_footage(game_id: str, files: List[UploadFile] = File(...))
     for file in files:
         if not file.filename:
             continue
-        # Sanitize filename
-        clean_name = re.sub(r'[\\/*?:"<>|]', '_', file.filename).strip()
-        dest_path = folder_path / clean_name
-        
+        # Sanitize filename: bare name only, always inside the footage folder
+        clean_name = _safe_upload_basename(file.filename, default_stem="clip")
+        dest_path = _safe_child_path(folder_path, clean_name)
+
         # Avoid overwrite collision by appending short UUID
         if dest_path.exists():
             stem = dest_path.stem
             suffix = dest_path.suffix
-            dest_path = folder_path / f"{stem}_{uuid.uuid4().hex[:4]}{suffix}"
+            dest_path = _safe_child_path(folder_path, f"{stem}_{uuid.uuid4().hex[:4]}{suffix}")
 
         content = await file.read()
-        with open(dest_path, "wb") as f:
-            f.write(content)
+        await run_in_threadpool(_write_bytes_file, dest_path, content)
 
         try:
             rel = dest_path.relative_to(BASE_DIR).as_posix()
@@ -1737,12 +2168,22 @@ async def upload_game_footage(game_id: str, files: List[UploadFile] = File(...))
             "modified_at": datetime.fromtimestamp(st.st_mtime).isoformat(),
         })
 
-    # Rescan total videos in folder
+    # Rescan total videos in folder (re-load under the state lock so concurrent
+    # edits to other game profiles made during the upload are not lost)
     video_exts = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v", ".flv"}
-    total_vids = len([f for f in folder_path.iterdir() if f.is_file() and f.suffix.lower() in video_exts])
-    target_game["video_count"] = total_vids
-    target_game["folder_exists"] = True
-    _save_gamedev_games(games)
+
+    def _rescan_and_save() -> int:
+        count = len([f for f in folder_path.iterdir() if f.is_file() and f.suffix.lower() in video_exts])
+        with json_store.lock_for(GAMEDEV_GAMES_FILE):
+            fresh_games = _load_gamedev_games()
+            fresh_target = next((g for g in fresh_games if g.get("id") == game_id), None)
+            if fresh_target is not None:
+                fresh_target["video_count"] = count
+                fresh_target["folder_exists"] = True
+                _save_gamedev_games(fresh_games)
+        return count
+
+    total_vids = await run_in_threadpool(_rescan_and_save)
 
     return {
         "status": "ok",
@@ -1753,6 +2194,7 @@ async def upload_game_footage(game_id: str, files: List[UploadFile] = File(...))
 
 
 @app.delete("/api/gamedev/games/{game_id}/footage/{filename}")
+@_state_locked(GAMEDEV_GAMES_FILE)
 def delete_game_footage_file(game_id: str, filename: str):
     """Delete a video clip from the game's footage folder."""
     games = _load_gamedev_games()
@@ -1765,8 +2207,15 @@ def delete_game_footage_file(game_id: str, filename: str):
     if not folder_path.is_absolute():
         folder_path = (BASE_DIR / folder_path).resolve()
 
-    target_file = folder_path / filename
-    if not target_file.exists():
+    # Only a bare file name that lives directly inside the footage folder.
+    if (not filename or filename in (".", "..") or ".." in filename or "\\" in filename
+            or "/" in filename or ":" in filename or Path(filename).name != filename):
+        raise HTTPException(status_code=400, detail="Nombre de archivo inválido.")
+    base_dir_resolved = folder_path.resolve()
+    target_file = (base_dir_resolved / filename).resolve()
+    if target_file.parent != base_dir_resolved:
+        raise HTTPException(status_code=400, detail="Nombre de archivo inválido.")
+    if not target_file.exists() or not target_file.is_file():
         raise HTTPException(status_code=404, detail=f"Archivo '{filename}' no encontrado en {folder_str}.")
 
     try:
@@ -1803,7 +2252,7 @@ def open_game_footage_folder(game_id: str):
 
     try:
         if sys.platform == "win32":
-            subprocess.Popen(f'explorer "{folder_path}"')
+            subprocess.Popen(["explorer", str(folder_path)])  # argument list: no command-line parsing of the path
         else:
             subprocess.Popen(["xdg-open", str(folder_path)])
         return {"status": "ok", "path": str(folder_path)}
@@ -1811,66 +2260,53 @@ def open_game_footage_folder(game_id: str):
         return {"status": "error", "message": str(e)}
 
 
-@app.get("/api/gamedev/settings")
-def get_gamedev_settings():
-    """Return current gamedev settings including Scrape Creators and Steamworks API Key statuses."""
-    from dotenv import load_dotenv
-    load_dotenv(BASE_DIR / ".env", override=True)
+def _gamedev_key_status() -> Dict[str, Any]:
     sc_key = os.getenv("SCRAPECREATORS_API_KEY", "").strip()
     steam_key = (os.getenv("STEAMWORKS_API_KEY") or os.getenv("STEAM_WEB_API_KEY") or "").strip()
     return {
         "has_scrapecreators_key": bool(sc_key),
-        "scrapecreators_api_key": sc_key,
-        "scrapecreators_masked": (sc_key[:6] + "..." + sc_key[-4:]) if len(sc_key) > 10 else ("*" * len(sc_key) if sc_key else ""),
+        "scrapecreators_api_key": _mask_secret(sc_key),
+        "scrapecreators_masked": _mask_secret(sc_key),
+        "scrapecreators_api_key_set": bool(sc_key),
         "has_steamworks_key": bool(steam_key),
-        "steamworks_api_key": steam_key,
-        "steamworks_masked": (steam_key[:6] + "..." + steam_key[-4:]) if len(steam_key) > 10 else ("*" * len(steam_key) if steam_key else "")
+        "steamworks_api_key": _mask_secret(steam_key),
+        "steamworks_masked": _mask_secret(steam_key),
+        "steamworks_api_key_set": bool(steam_key),
     }
+
+
+@app.get("/api/gamedev/settings")
+def get_gamedev_settings():
+    """Return current gamedev settings including Scrape Creators and Steamworks API Key statuses (keys masked)."""
+    from dotenv import load_dotenv
+    load_dotenv(ENV_FILE_PATH, override=True)
+    return _gamedev_key_status()
+
+
+_GAMEDEV_FIELD_TO_ENV = {
+    "scrapecreators_api_key": "SCRAPECREATORS_API_KEY",
+    "steamworks_api_key": "STEAMWORKS_API_KEY",
+}
 
 
 @app.post("/api/gamedev/settings")
 def update_gamedev_settings(payload: GamedevSettingsPayload):
-    """Save Scrape Creators and Steamworks API Keys to .env and active runtime environment."""
-    env_path = BASE_DIR / ".env"
-    lines = []
-    if env_path.exists():
-        with open(env_path, "r", encoding="utf-8") as f:
-            lines = f.readlines()
+    """Save Scrape Creators and Steamworks API Keys to .env and active runtime environment.
 
-    keys_to_update = {}
-    if payload.scrapecreators_api_key is not None:
-        keys_to_update["SCRAPECREATORS_API_KEY"] = payload.scrapecreators_api_key.strip()
-    if payload.steamworks_api_key is not None:
-        keys_to_update["STEAMWORKS_API_KEY"] = payload.steamworks_api_key.strip()
-
-    for key_name, raw_val in keys_to_update.items():
-        found = False
-        new_lines = []
-        for line in lines:
-            if line.startswith(f"{key_name}="):
-                new_lines.append(f"{key_name}={raw_val}\n")
-                found = True
-            else:
-                new_lines.append(line)
-        if not found:
-            if new_lines and not new_lines[-1].endswith("\n"):
-                new_lines[-1] += "\n"
-            new_lines.append(f"{key_name}={raw_val}\n")
-        lines = new_lines
-        os.environ[key_name] = raw_val
-
-    with open(env_path, "w", encoding="utf-8") as f:
-        f.writelines(lines)
-
-    sc_key = os.getenv("SCRAPECREATORS_API_KEY", "").strip()
-    steam_key = (os.getenv("STEAMWORKS_API_KEY") or os.getenv("STEAM_WEB_API_KEY") or "").strip()
+    Empty or masked values are ignored (existing keys are kept); use clear_keys to remove one.
+    """
+    candidates = {
+        "SCRAPECREATORS_API_KEY": payload.scrapecreators_api_key,
+        "STEAMWORKS_API_KEY": payload.steamworks_api_key,
+    }
+    updates, ignored = _collect_env_updates(candidates, payload.clear_keys, _GAMEDEV_FIELD_TO_ENV)
+    written = _update_env_file(updates)
     return {
         "status": "ok",
-        "has_scrapecreators_key": bool(sc_key),
-        "scrapecreators_api_key": sc_key,
-        "has_steamworks_key": bool(steam_key),
-        "steamworks_api_key": steam_key,
-        "message": "Ajustes de API Keys guardados correctamente en .env"
+        **_gamedev_key_status(),
+        "updated_keys": written,
+        "ignored_keys": ignored,
+        "message": "Ajustes de API Keys guardados correctamente en .env" if written else "Sin cambios: las claves existentes se conservan.",
     }
 
 
@@ -2188,6 +2624,7 @@ def _fetch_scrapecreators_metrics(social_links: Dict[str, str]) -> Dict[str, Dic
 
 
 @app.get("/api/gamedev/games/{game_id}/insights")
+@_state_locked(GAMEDEV_GAMES_FILE)
 def get_game_insights(game_id: str):
     """Retrieve insights, metrics, and summary for a specific game profile."""
     games = _load_gamedev_games()
@@ -2201,20 +2638,32 @@ def get_game_insights(game_id: str):
         raise HTTPException(status_code=404, detail="Perfil de juego no encontrado.")
         
     insights = target_game.get("insights", [])
-    # Initialize with default realistic seed if brand new to immediately demonstrate functionality
+    simulated = False
+    # Brand new profile: show demo metrics so the dashboard is not empty, but NEVER
+    # persist them from a GET (they would be mistaken for real campaign data).
     if not insights:
         insights = _generate_default_seed_insights()
-        target_game["insights"] = insights
+        simulated = True
+    elif all(isinstance(item, dict) and item.get("simulated") for item in insights):
+        simulated = True
 
-    # Normalize automated field for all entries
+    # Normalize automated field for all entries (response only)
+    insights = [dict(item) for item in insights if isinstance(item, dict)]
     for item in insights:
         if "automated" not in item:
             item["automated"] = True
+        if simulated:
+            item["simulated"] = True
 
     summary = _calculate_insights_summary(insights)
-    target_game["views_count"] = summary["total_views"]
-    target_game["uploaded_count"] = summary["video_count"]
-    _save_gamedev_games(games)
+    if not simulated and (
+        target_game.get("views_count") != summary["total_views"]
+        or target_game.get("uploaded_count") != summary["video_count"]
+    ):
+        # Real data only: keep the cached counters shown in the games list in sync.
+        target_game["views_count"] = summary["total_views"]
+        target_game["uploaded_count"] = summary["video_count"]
+        _save_gamedev_games(games)
 
     return {
         "game_id": game_id,
@@ -2222,11 +2671,13 @@ def get_game_insights(game_id: str):
         "accent_color": target_game.get("accent_color", "#7c3aed"),
         "social_links": target_game.get("social_links", {}),
         "insights": insights,
-        "summary": summary
+        "summary": summary,
+        "simulated": simulated,
     }
 
 
 @app.post("/api/gamedev/games/{game_id}/sync-insights")
+@_state_locked(GAMEDEV_GAMES_FILE)
 def sync_game_insights(game_id: str):
     """
     Sync video metrics from Scrape Creators API.
@@ -2250,10 +2701,13 @@ def sync_game_insights(game_id: str):
     current_insights = target_game.get("insights") or []
     # Index current insights by upload_date to ensure hooks and automated flags are preserved
     insights_by_date = {item["upload_date"]: dict(item) for item in current_insights if "upload_date" in item}
-    
+    if scraped_data:
+        # Real metrics arrived: drop previously seeded demo rows.
+        insights_by_date = {k: v for k, v in insights_by_date.items() if not v.get("simulated")}
+
     if not scraped_data and not current_insights:
-        # Seed realistic fallback data
-        seed = _generate_default_seed_insights()
+        # Seed realistic fallback data (explicitly labelled as simulated demo data)
+        seed = [dict(item, simulated=True) for item in _generate_default_seed_insights()]
         target_game["insights"] = seed
     else:
         # Merge freshly scraped metrics while preserving user hook & automated flag!
@@ -2333,6 +2787,7 @@ def sync_game_insights(game_id: str):
 
 
 @app.get("/api/gamedev/games/{game_id}/evolutions")
+@_state_locked(GAMEDEV_GAMES_FILE)
 def get_game_evolutions(game_id: str):
     """Retrieve video performance evolution snapshots over scrape time (T+)."""
     games = _load_gamedev_games()
@@ -2346,10 +2801,11 @@ def get_game_evolutions(game_id: str):
         raise HTTPException(status_code=404, detail="Perfil de juego no encontrado.")
         
     evolutions = target_game.get("evolutions", [])
+    simulated = False
     if not evolutions:
-        evolutions = _generate_default_seed_evolutions()
-        target_game["evolutions"] = evolutions
-        _save_gamedev_games(games)
+        # Demo data for display only: never persisted from a GET.
+        evolutions = [dict(e, simulated=True) for e in _generate_default_seed_evolutions()]
+        simulated = True
 
     insights = target_game.get("insights", [])
     hook_map = {item.get("upload_date"): item.get("hook", "") for item in insights}
@@ -2367,11 +2823,13 @@ def get_game_evolutions(game_id: str):
     return {
         "game_id": game_id,
         "evolutions": evolutions,
-        "available_videos": available_videos
+        "available_videos": available_videos,
+        "simulated": simulated,
     }
 
 
 @app.patch("/api/gamedev/games/{game_id}/insights/{upload_date}/hook")
+@_state_locked(GAMEDEV_GAMES_FILE)
 def update_game_insight_hook(game_id: str, upload_date: str, payload: UpdateHookPayload):
     """Update manually entered video hook for a specific upload date."""
     games = _load_gamedev_games()
@@ -2412,6 +2870,7 @@ def update_game_insight_hook(game_id: str, upload_date: str, payload: UpdateHook
 
 
 @app.patch("/api/gamedev/games/{game_id}/insights/{upload_date}/automated")
+@_state_locked(GAMEDEV_GAMES_FILE)
 def update_game_insight_automated(game_id: str, upload_date: str, payload: UpdateAutomatedPayload):
     """Toggle automated status for a video in insights."""
     games = _load_gamedev_games()
@@ -2449,6 +2908,7 @@ def update_game_insight_automated(game_id: str, upload_date: str, payload: Updat
 
 
 @app.post("/api/gamedev/games/{game_id}/insights/manual")
+@_state_locked(GAMEDEV_GAMES_FILE)
 def add_manual_game_insight(game_id: str, payload: ManualInsightPayload):
     """Manually insert or edit a video insight entry."""
     games = _load_gamedev_games()
@@ -2501,6 +2961,7 @@ def add_manual_game_insight(game_id: str, payload: ManualInsightPayload):
 
 
 @app.delete("/api/gamedev/games/{game_id}/insights/{upload_date}")
+@_state_locked(GAMEDEV_GAMES_FILE)
 def delete_game_insight(game_id: str, upload_date: str):
     """Delete a video insight row by upload_date."""
     games = _load_gamedev_games()
@@ -2864,6 +3325,7 @@ def _generate_steam_impact_analysis(target_game: Dict[str, Any]) -> Dict[str, An
 
 
 @app.get("/api/gamedev/games/{game_id}/steam-impact")
+@_state_locked(GAMEDEV_GAMES_FILE)
 def get_game_steam_impact(game_id: str):
     """Retrieve Steam Impact metrics, wishlist conversion analysis, and daily timeline."""
     from dotenv import load_dotenv
@@ -2885,6 +3347,7 @@ def get_game_steam_impact(game_id: str):
 
 
 @app.post("/api/gamedev/games/{game_id}/sync-steam")
+@_state_locked(GAMEDEV_GAMES_FILE)
 def sync_game_steam_impact(game_id: str, payload: Optional[SyncSteamPayload] = None):
     """Sync Steam store metadata & live wishlist metrics with Steam API and recompute impact analysis."""
     from dotenv import load_dotenv
@@ -2995,6 +3458,7 @@ def sync_game_steam_impact(game_id: str, payload: Optional[SyncSteamPayload] = N
 
 
 @app.patch("/api/gamedev/games/{game_id}/wishlists")
+@_state_locked(GAMEDEV_GAMES_FILE)
 def update_game_wishlists(game_id: str, payload: UpdateWishlistsPayload):
     """Directly update current wishlist count for a game and recompute impact correlation."""
     games = _load_gamedev_games()
@@ -3148,8 +3612,8 @@ def clear_all_trailers():
 def generate_hook(req: HookGenerateRequest):
     """Generate a viral promotional hook using Groq or Gemini."""
     cfg = AppConfig.from_env()
-    groq_key = req.groq_api_key or cfg.groq_api_key
-    gemini_key = req.gemini_api_key or cfg.gemini_api_key
+    groq_key = _client_secret_or_env(req.groq_api_key, cfg.groq_api_key)
+    gemini_key = _client_secret_or_env(req.gemini_api_key, cfg.gemini_api_key)
     
     if not groq_key and not gemini_key:
         raise HTTPException(status_code=400, detail="Se requiere Groq API Key o Gemini API Key")
@@ -3168,8 +3632,8 @@ def generate_hook(req: HookGenerateRequest):
 def generate_multiple_hooks(req: MultipleHooksGenerateRequest):
     """Generate multiple distinct promotional hooks with varied creative angles."""
     cfg = AppConfig.from_env()
-    groq_key = req.groq_api_key or cfg.groq_api_key
-    gemini_key = req.gemini_api_key or cfg.gemini_api_key
+    groq_key = _client_secret_or_env(req.groq_api_key, cfg.groq_api_key)
+    gemini_key = _client_secret_or_env(req.gemini_api_key, cfg.gemini_api_key)
 
     if not groq_key and not gemini_key:
         raise HTTPException(status_code=400, detail="Se requiere Groq API Key o Gemini API Key")
@@ -3206,8 +3670,8 @@ def generate_multiple_hooks(req: MultipleHooksGenerateRequest):
 def modify_hook(req: HookModifyRequest):
     """Modify hook length (shorter or longer)."""
     cfg = AppConfig.from_env()
-    groq_key = req.groq_api_key or cfg.groq_api_key
-    gemini_key = req.gemini_api_key or cfg.gemini_api_key
+    groq_key = _client_secret_or_env(req.groq_api_key, cfg.groq_api_key)
+    gemini_key = _client_secret_or_env(req.gemini_api_key, cfg.gemini_api_key)
     
     if not req.current_text.strip():
         raise HTTPException(status_code=400, detail="El texto actual está vacío")
@@ -3227,8 +3691,8 @@ def modify_hook(req: HookModifyRequest):
 def generate_v2_script_endpoint(req: V2ScriptGenerateRequest):
     """Generate high-retention viral promo script for Short V2 IA."""
     cfg = AppConfig.from_env()
-    groq_key = req.groq_api_key or cfg.groq_api_key
-    gemini_key = req.gemini_api_key or cfg.gemini_api_key
+    groq_key = _client_secret_or_env(req.groq_api_key, cfg.groq_api_key)
+    gemini_key = _client_secret_or_env(req.gemini_api_key, cfg.gemini_api_key)
 
     if not groq_key and not gemini_key:
         raise HTTPException(status_code=400, detail="Se requiere Groq API Key o Gemini API Key")
@@ -3237,7 +3701,7 @@ def generate_v2_script_endpoint(req: V2ScriptGenerateRequest):
 
     briefing = req.briefing_text or ""
     if req.session_id:
-        step2_json = BASE_DIR / "temp" / "v3_cache" / req.session_id / "step2_evaluated_shots.json"
+        step2_json = _safe_session_dir(req.session_id) / "step2_evaluated_shots.json"
         if step2_json.exists():
             try:
                 with open(step2_json, "r", encoding="utf-8") as f:
@@ -3255,19 +3719,42 @@ def generate_v2_script_endpoint(req: V2ScriptGenerateRequest):
             except Exception as e:
                 logger.warning(f"Could not load step2 context from {step2_json}: {e}")
 
+    # Word budget must use the SAME speed the voice will use.
+    saved_voice_speed = None
+    if req.session_id and req.speech_speed is None:
+        try:
+            s3_file = _safe_session_dir(req.session_id) / "step3_script.json"
+            if s3_file.exists():
+                saved_voice_speed = (json.loads(s3_file.read_text(encoding="utf-8")) or {}).get("speed")
+        except HTTPException:
+            raise
+        except Exception:
+            saved_voice_speed = None
+    speech_speed = _resolve_speech_speed(req.speech_speed, saved_voice_speed)
+    hook_type = _hook_type_value(req.hook_type)
+    opening_text = (req.opening_text or "").strip()
+
     try:
+        optional_kwargs, _ = _filter_supported_kwargs(generate_v2_script, {
+            "opening_text": opening_text,
+            "speech_speed": speech_speed,
+        })
         res = generate_v2_script(
             game_name=req.game_name,
             target_duration=req.target_duration,
             tone=req.tone or "viral_hype",
             briefing_text=briefing,
-            hook_type=req.hook_type or "steam_new_game",
+            hook_type=hook_type,
             script_mode=req.script_mode,
             game_genre=req.game_genre,
             groq_api_key=groq_key or "",
             gemini_api_key=gemini_key,
+            **optional_kwargs,
         )
-        return {"status": "ok", **res}
+        if hook_type == "custom" and opening_text and "opening_text" not in optional_kwargs and isinstance(res, dict) and res.get("script"):
+            # Script generator without opening_text support yet: enforce the opener here.
+            res["script"] = _apply_custom_opening(res["script"], opening_text)
+        return {"status": "ok", "hook_type": hook_type, "opening_text": opening_text, "speech_speed": speech_speed, **res}
     except Exception as e:
         logger.exception("Error generating V2 script")
         raise HTTPException(status_code=500, detail=str(e))
@@ -3277,8 +3764,8 @@ def generate_v2_script_endpoint(req: V2ScriptGenerateRequest):
 def modify_v2_script_endpoint(req: V2ScriptModifyRequest):
     """Shorten, lengthen, change hook, or modify with custom instructions an existing V2 promo script."""
     cfg = AppConfig.from_env()
-    groq_key = req.groq_api_key or cfg.groq_api_key
-    gemini_key = req.gemini_api_key or cfg.gemini_api_key
+    groq_key = _client_secret_or_env(req.groq_api_key, cfg.groq_api_key)
+    gemini_key = _client_secret_or_env(req.gemini_api_key, cfg.gemini_api_key)
 
     if not req.script_text.strip():
         raise HTTPException(status_code=400, detail="El texto del guión está vacío")
@@ -3361,17 +3848,16 @@ async def upload_voiceover_endpoint(file: UploadFile = File(...)):
     upload_dir = BASE_DIR / "temp" / "uploads"
     upload_dir.mkdir(parents=True, exist_ok=True)
 
-    clean_filename = f"voice_{uuid.uuid4().hex[:6]}_{file.filename}"
-    dest_path = upload_dir / clean_filename
+    clean_filename = f"voice_{uuid.uuid4().hex[:6]}_{_safe_upload_basename(file.filename, default_stem='voice')}"
+    dest_path = _safe_child_path(upload_dir, clean_filename)
 
-    with open(dest_path, "wb") as f:
-        content = await file.read()
-        f.write(content)
+    content = await file.read()
+    await run_in_threadpool(_write_bytes_file, dest_path, content)
 
-    # Extract audio if it's a video or raw audio file
-    extracted_wav = upload_dir / f"{dest_path.stem}.wav"
-    clean_audio_path = extract_clean_audio(dest_path, extracted_wav)
-    duration = get_audio_duration(clean_audio_path)
+    # Extract audio if it's a video or raw audio file (FFmpeg: run off the event loop)
+    extracted_wav = _safe_child_path(upload_dir, f"{dest_path.stem}.wav")
+    clean_audio_path = await run_in_threadpool(extract_clean_audio, dest_path, extracted_wav)
+    duration = await run_in_threadpool(get_audio_duration, clean_audio_path)
 
     return {
         "status": "ok",
@@ -3406,6 +3892,138 @@ def _resolve_promov3_video_path(raw_path: str) -> Optional[Path]:
         elif (BASE_DIR / raw).exists():
             return (BASE_DIR / raw).resolve()
         return Path(raw).resolve()
+
+
+V3_CACHE_DIR = BASE_DIR / "temp" / "v3_cache"
+
+# ----------------------------------------------------------------------------
+# Shared API contract helpers (opening/hook, voice, render options)
+# ----------------------------------------------------------------------------
+HOOK_TYPES = ("steam_new_game", "so_in_this_new_game", "direct", "custom")
+STEAM_SPLASH_HOOK_TYPES = ("steam_new_game", "so_in_this_new_game")
+CUT_START_MODES = ("shot_start", "best_moment")
+DEFAULT_SPEECH_SPEED = 1.1
+
+
+def _clamp_float(value: Any, lo: float, hi: float, default: float) -> float:
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return default
+    if v != v:  # NaN
+        return default
+    return max(lo, min(hi, v))
+
+
+def _resolve_speech_speed(value: Any, fallback: Any = None) -> float:
+    """Voice speed used for the script word budget (ElevenLabs range 0.7-1.2)."""
+    for cand in (value, fallback):
+        if cand is not None:
+            try:
+                return _clamp_float(float(cand), 0.7, 1.2, DEFAULT_SPEECH_SPEED)
+            except (TypeError, ValueError):
+                continue
+    return DEFAULT_SPEECH_SPEED
+
+
+def _hook_type_value(hook_type: Any) -> str:
+    return (str(hook_type).strip() if hook_type else "") or "steam_new_game"
+
+
+def _uses_steam_splash(hook_type: Any) -> bool:
+    """direct/custom scripts have no spoken Steam prefix: no splash timed to it.
+    Unknown legacy values keep the previous behaviour (splash on)."""
+    return _hook_type_value(hook_type) not in ("direct", "custom")
+
+
+def _normalize_for_prefix(text: str) -> str:
+    return re.sub(r"[^\w]+", " ", (text or "").lower()).strip()
+
+
+def _apply_custom_opening(script: str, opening_text: Optional[str]) -> str:
+    """Make sure ``script`` starts with the campaign-provided opener."""
+    opener = (opening_text or "").strip()
+    body = (script or "").strip()
+    if not opener:
+        return body
+    if _normalize_for_prefix(body).startswith(_normalize_for_prefix(opener)):
+        return body
+    return f"{opener} {body}".strip()
+
+
+def _apply_spoken_opening(script: str, hook_type: Any, opening_text: Optional[str] = "") -> str:
+    """Spoken opener for synthesized V2 scripts.
+
+    steam_new_game -> "Here's a new Steam game..." prefix (unchanged behaviour);
+    so_in_this_new_game -> "So in this new game, ..." (unchanged behaviour);
+    custom -> starts with opening_text; direct (or custom without text) -> untouched.
+    """
+    ht = _hook_type_value(hook_type)
+    clean_script = (script or "").strip()
+    if ht == "steam_new_game":
+        return ensure_steam_hook_prefix(clean_script)
+    if ht == "so_in_this_new_game":
+        if not clean_script.lower().startswith("so in this new game"):
+            first_char = clean_script[0].lower() if len(clean_script) > 1 else ""
+            clean_script = f"So in this new game, {first_char}{clean_script[1:]}" if clean_script else "So in this new game, check out what happens."
+        return clean_script
+    if ht == "custom":
+        if not (opening_text or "").strip():
+            logger.warning("hook_type 'custom' sin opening_text: se usa el guion tal cual (como 'direct').")
+        return _apply_custom_opening(clean_script, opening_text)
+    return clean_script
+
+
+def _filter_supported_kwargs(fn: Any, optional: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
+    """Split ``optional`` kwargs into the ones ``fn`` accepts and the ones it does not.
+
+    New contract options are passed only when the target engine/voice/script
+    function already supports them, so this module keeps working whatever the
+    merge order of the parallel engine changes is (dropped options are logged).
+    """
+    if not optional:
+        return {}, []
+    try:
+        params = inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return dict(optional), []
+    if any(prm.kind == inspect.Parameter.VAR_KEYWORD for prm in params.values()):
+        return dict(optional), []
+    accepted = {k: v for k, v in optional.items() if k in params}
+    dropped = [k for k in optional if k not in params]
+    if dropped:
+        logger.warning(f"{getattr(fn, '__name__', fn)} no admite todavía: {', '.join(dropped)} (se ignoran).")
+    return accepted, dropped
+def _validate_session_id(session_id: Any) -> str:
+    """Validate a Promo V3 session id used as a folder name under temp/v3_cache.
+
+    Session ids are generated as ``sess_<md5>_<stem>`` / ``sess_multi_...`` (stems
+    keep Unicode letters, digits, '_' and '-'), plus legacy names such as
+    ``sess_<timestamp>`` and the ``global`` folder. Any single, valid Windows folder
+    name is accepted; path separators, '..', drive colons, control characters and
+    names ending in '.' or ' ' (aliased by Windows) are rejected with HTTP 400.
+    """
+    try:
+        return validate_folder_name(session_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="session_id inválido.")
+
+
+def _safe_session_dir(session_id: Any, cache_dir: Optional[Path] = None) -> Path:
+    """Return temp/v3_cache/<session_id> after validating it stays inside the cache
+    (the single helper used by every handler that joins a session id into a path)."""
+    try:
+        return safe_child_dir(Path(cache_dir or V3_CACHE_DIR), session_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="session_id inválido.")
+
+
+def _safe_session_dir_or_none(session_id: Any) -> Optional[Path]:
+    """Non-raising variant for ids read from local data files."""
+    try:
+        return _safe_session_dir(session_id)
+    except HTTPException:
+        return None
 
 
 def get_canonical_v3_session_id(video_path: str) -> str:
@@ -3445,7 +4063,11 @@ def save_promov3_step3_endpoint(req: PromoV3Step3SaveRequest):
     if not sess_name:
         raise HTTPException(status_code=400, detail="session_id o video_path es obligatorio")
 
-    sess_dir = BASE_DIR / "temp" / "v3_cache" / sess_name
+    from project_paths import safe_child_dir as _safe_child_dir  # local import: endpoint is also loaded in isolation by tests
+    try:
+        sess_dir = _safe_child_dir(BASE_DIR / "temp" / "v3_cache", sess_name)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="session_id inválido.")
     sess_dir.mkdir(parents=True, exist_ok=True)
     out_file = sess_dir / "step3_script.json"
 
@@ -3526,6 +4148,7 @@ def save_promov3_step3_endpoint(req: PromoV3Step3SaveRequest):
         "video_paths": req.video_paths or ([req.video_path] if req.video_path else []),
         "game_name": resolved_gname,
         "hook_type": req.hook_type,
+        "opening_text": (req.opening_text or "").strip(),
         "tone": req.tone,
         "target_duration": req.target_duration,
         "briefing_text": req.briefing_text or "",
@@ -3544,6 +4167,7 @@ def save_promov3_step3_endpoint(req: PromoV3Step3SaveRequest):
         "alignment": saved_alignment,
         "speed": vdata.get("speed", 1.10),
         "stability": vdata.get("stability", 0.50),
+        "similarity_boost": vdata.get("similarity_boost", 0.75),
         "speed_full": vdata.get("speed_full"),
         "speed_hook": vdata.get("speed_hook"),
         "synthesis_mode": vdata.get("synthesis_mode"),
@@ -3566,7 +4190,7 @@ def get_promov3_retention_endpoint(session_id: str):
     sess_name = (session_id or "").strip()
     if not sess_name:
         raise HTTPException(status_code=400, detail="session_id es obligatorio")
-    step3_file = BASE_DIR / "temp" / "v3_cache" / sess_name / "step3_script.json"
+    step3_file = _safe_session_dir(sess_name) / "step3_script.json"
     if not step3_file.exists():
         raise HTTPException(status_code=404, detail=f"No se encontró step3_script.json para la sesión {sess_name}")
     try:
@@ -3575,7 +4199,7 @@ def get_promov3_retention_endpoint(session_id: str):
         retention = sdata.get("retention_data")
         words = sdata.get("words")
         if not words:
-            voice_file = BASE_DIR / "temp" / "v3_cache" / sess_name / "step3_voice.json"
+            voice_file = _safe_session_dir(sess_name) / "step3_voice.json"
             if voice_file.exists():
                 try:
                     with open(voice_file, "r", encoding="utf-8") as vf:
@@ -3608,7 +4232,11 @@ def synthesize_promov3_voice_endpoint(req: PromoV3SynthesizeVoiceRequest):
     if not sess_name:
         sess_name = f"sess_{int(time.time())}"
 
-    v3_dir = BASE_DIR / "temp" / "v3_cache" / sess_name
+    from project_paths import safe_child_dir as _safe_child_dir  # local import: endpoint is also loaded in isolation by tests
+    try:
+        v3_dir = _safe_child_dir(BASE_DIR / "temp" / "v3_cache", sess_name)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="session_id inválido.")
     v3_dir.mkdir(parents=True, exist_ok=True)
 
     text = req.script_text.strip()
@@ -3626,6 +4254,22 @@ def synthesize_promov3_voice_endpoint(req: PromoV3SynthesizeVoiceRequest):
 
     spd = float(req.speed) if req.speed is not None else 1.1
     stb = float(req.stability) if req.stability is not None else 0.5
+    try:
+        sim = max(0.0, min(1.0, float(req.similarity_boost if req.similarity_boost is not None else 0.75)))
+    except (TypeError, ValueError):
+        sim = 0.75
+
+    # similarity_boost is passed only if the voice engine already supports it.
+    voice_optional = {"similarity_boost": sim}
+    try:
+        import inspect as _inspect
+        _voice_params = _inspect.signature(synthesize_elevenlabs_with_timestamps).parameters
+        if "similarity_boost" not in _voice_params and not any(
+                prm.kind == _inspect.Parameter.VAR_KEYWORD for prm in _voice_params.values()):
+            logger.warning("synthesize_elevenlabs_with_timestamps no admite todavía similarity_boost (se ignora).")
+            voice_optional = {}
+    except (TypeError, ValueError):
+        pass
 
     try:
         tts_out, words, align_dict = synthesize_elevenlabs_with_timestamps(
@@ -3635,6 +4279,7 @@ def synthesize_promov3_voice_endpoint(req: PromoV3SynthesizeVoiceRequest):
             voice_id=voice_id,
             speed=spd,
             stability=stb,
+            **voice_optional,
         )
         dur = get_media_duration(out_file)
         t_stamp = int(time.time())
@@ -3654,6 +4299,7 @@ def synthesize_promov3_voice_endpoint(req: PromoV3SynthesizeVoiceRequest):
             "speed_hook": align_dict.get("speed_hook"),
             "synthesis_mode": align_dict.get("synthesis_mode"),
             "stability": stb,
+            "similarity_boost": sim,
             "words": words,
             "alignment": align_dict,
             "script_text": text,
@@ -3704,6 +4350,7 @@ def synthesize_promov3_voice_endpoint(req: PromoV3SynthesizeVoiceRequest):
         sdata["alignment"] = align_dict
         sdata["speed"] = spd
         sdata["stability"] = stb
+        sdata["similarity_boost"] = sim
         sdata["speed_full"] = voice_data["speed_full"]
         sdata["speed_hook"] = voice_data["speed_hook"]
         sdata["synthesis_mode"] = voice_data["synthesis_mode"]
@@ -3751,7 +4398,7 @@ def run_promov3_step4_orchestrate(req: PromoV3Step4OrchestrateRequest):
     v3_dir = None
 
     if req.session_id:
-        cand = v3_cache_dir / req.session_id
+        cand = _safe_session_dir(req.session_id)
         if cand.exists():
             v3_dir = cand
 
@@ -3866,6 +4513,9 @@ def run_promov3_step4_orchestrate(req: PromoV3Step4OrchestrateRequest):
         voice_id = (cfg.elevenlabs_voice_id or os.environ.get("ELEVENLABS_VOICE_ID", "TX3LPaxmHKxFdv7VOQHJ")).strip()
         if eleven_key:
             try:
+                s4_voice_optional, _ = _filter_supported_kwargs(synthesize_elevenlabs_with_timestamps, {
+                    "similarity_boost": _clamp_float(step3_data.get("similarity_boost", 0.75), 0.0, 1.0, 0.75),
+                })
                 tts_out, words, align_dict = synthesize_elevenlabs_with_timestamps(
                     text=script_text,
                     output_path=voice_mp3_file,
@@ -3873,6 +4523,7 @@ def run_promov3_step4_orchestrate(req: PromoV3Step4OrchestrateRequest):
                     voice_id=voice_id,
                     speed=float(step3_data.get("speed") or 1.10),
                     stability=float(step3_data.get("stability", 0.50)),
+                    **s4_voice_optional,
                 )
                 dur = get_media_duration(voice_mp3_file)
                 from audio_aligner import get_first_sentence_end_time
@@ -4074,6 +4725,12 @@ def run_promov3_step4_orchestrate(req: PromoV3Step4OrchestrateRequest):
     if not resolved_video_format:
         resolved_video_format = "full_9_16"
 
+    cut_start_mode = (req.cut_start_mode or "shot_start").strip().lower()
+    if cut_start_mode not in CUT_START_MODES:
+        logger.warning(f"cut_start_mode desconocido '{req.cut_start_mode}': se usa 'shot_start'.")
+        cut_start_mode = "shot_start"
+    step4_optional, _ = _filter_supported_kwargs(orchestrate_promov3_step4_edl, {"cut_start_mode": cut_start_mode})
+
     try:
         edl = orchestrate_promov3_step4_edl(
             step2_shots=step2_shots,
@@ -4092,6 +4749,7 @@ def run_promov3_step4_orchestrate(req: PromoV3Step4OrchestrateRequest):
             approved_shot_ids=approved_shot_ids,
             video_format=resolved_video_format,
             script_mode=req.script_mode or step3_data.get("script_mode") or "normal",
+            **step4_optional,
         )
     except Exception as e:
         from promo_v3_engine import InsufficientUniqueShotsError
@@ -4115,6 +4773,7 @@ def run_promov3_step4_orchestrate(req: PromoV3Step4OrchestrateRequest):
     edl["session_id"] = sess_name
     edl["video_path"] = req.video_path or step3_data.get("video_path", "")
     edl["video_format"] = resolved_video_format
+    edl.setdefault("cut_start_mode", cut_start_mode)
     if hook_duration and edl.get("script_mode") != "caveman":
         edl["sentence_1_end_s"] = hook_duration
     edl["saved_at"] = time.time()
@@ -4147,7 +4806,7 @@ def save_promov3_step4_endpoint(req: PromoV3Step4SaveRequest):
     if not sess_name:
         raise HTTPException(status_code=400, detail="session_id o video_path es obligatorio")
 
-    sess_dir = BASE_DIR / "temp" / "v3_cache" / sess_name
+    sess_dir = _safe_session_dir(sess_name)
     sess_dir.mkdir(parents=True, exist_ok=True)
     out_file = sess_dir / "step4_edl.json"
 
@@ -4169,6 +4828,8 @@ def _promov3_slot_candidates(req: PromoV3SlotShotRequest):
     if not sess_name:
         sess_name = (get_canonical_v3_multi_session_id(req.video_paths) if req.video_paths
                      else get_canonical_v3_session_id(req.video_path) if req.video_path else "")
+    # Self-contained containment check (also exercised in isolation by tests):
+    # the resolved folder must be a direct child of temp/v3_cache.
     cache = (BASE_DIR / "temp" / "v3_cache").resolve()
     sess_dir = (cache / sess_name).resolve()
     if not sess_name or sess_dir.parent != cache or not sess_dir.is_dir():
@@ -4242,6 +4903,32 @@ def promov3_replace_slot_endpoint(req: PromoV3SlotShotRequest):
 # API Endpoints: Promo V3 — Paso 5 (Renderizado Final, Subtítulos & Steam Hook)
 # =============================================================================
 
+def _finalize_render_result(render_result: Any, render_options: Dict[str, Any],
+                            server_warnings: Optional[List[str]] = None,
+                            dropped_options: Optional[List[str]] = None) -> Dict[str, Any]:
+    """Merge server-side warnings into the engine result and record the options used.
+
+    Keeps every key the engine returned; adds ``warnings`` (list of str) and the
+    render options (engine values win, e.g. the real fps after a fallback) so a
+    recovered session restores them.
+    """
+    result: Dict[str, Any] = dict(render_result or {})
+    warnings: List[str] = []
+    for w in list(server_warnings or []) + list(result.get("warnings") or []):
+        if w and str(w) not in warnings:
+            warnings.append(str(w))
+    for opt in dropped_options or []:
+        msg = f"La opción de render '{opt}' aún no está disponible en el motor; se ha ignorado."
+        if msg not in warnings:
+            warnings.append(msg)
+    result["warnings"] = warnings
+    for key, value in render_options.items():
+        result.setdefault(key, value)
+    result["requested_output_fps"] = render_options.get("output_fps", 30)
+    result["render_options"] = {k: result.get(k, v) for k, v in render_options.items()}
+    return result
+
+
 @app.post("/api/promov3/step5/render")
 def run_promov3_step5_render(req: PromoV3Step5RenderRequest):
     """
@@ -4263,7 +4950,7 @@ def run_promov3_step5_render(req: PromoV3Step5RenderRequest):
     if not sess_name:
         raise HTTPException(status_code=400, detail="session_id o video_path es obligatorio")
 
-    v3_dir = BASE_DIR / "temp" / "v3_cache" / sess_name
+    v3_dir = _safe_session_dir(sess_name)
     if not v3_dir.exists():
         raise HTTPException(status_code=404, detail=f"No se encontró sesión en caché para {sess_name}")
 
@@ -4427,6 +5114,21 @@ def run_promov3_step5_render(req: PromoV3Step5RenderRequest):
     output_dir = APP_OUTPUT_DIR
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # New render options (contract item 3). Invalid fps values fall back to 30 with a warning.
+    server_warnings: List[str] = []
+    try:
+        requested_fps = int(req.output_fps)
+    except (TypeError, ValueError):
+        requested_fps = 30
+    if requested_fps not in (30, 60):
+        server_warnings.append(f"output_fps={req.output_fps} no soportado (solo 30 o 60): se renderiza a 30 fps.")
+        requested_fps = 30
+    render_options = {
+        "audio_normalize": bool(req.audio_normalize),
+        "audio_ducking": bool(req.audio_ducking),
+        "output_fps": requested_fps,
+    }
+
     job = create_job("promov3_render")
 
     def worker():
@@ -4452,6 +5154,9 @@ def run_promov3_step5_render(req: PromoV3Step5RenderRequest):
 
                 if eleven_k:
                     from audio_aligner import synthesize_elevenlabs_with_timestamps, get_first_sentence_end_time
+                    s5_voice_optional, _ = _filter_supported_kwargs(synthesize_elevenlabs_with_timestamps, {
+                        "similarity_boost": _clamp_float(script_data.get("similarity_boost", 0.75), 0.0, 1.0, 0.75),
+                    })
                     tts_out, words, align_dict = synthesize_elevenlabs_with_timestamps(
                         text=script_txt,
                         output_path=tts_file,
@@ -4459,6 +5164,7 @@ def run_promov3_step5_render(req: PromoV3Step5RenderRequest):
                         voice_id=voice_id,
                         speed=float(script_data.get("speed") or 1.10),
                         stability=float(script_data.get("stability", 0.50)),
+                        **s5_voice_optional,
                     )
                     dur = get_media_duration(tts_file)
                     s1_end = round(get_first_sentence_end_time({"words": words}, script_text=script_txt), 3)
@@ -4513,6 +5219,7 @@ def run_promov3_step5_render(req: PromoV3Step5RenderRequest):
             def progress_cb(pct: float, msg: str):
                 job.update(pct, msg, msg)
 
+            render_optional, render_dropped = _filter_supported_kwargs(render_promov3_final_video, render_options)
             render_result = render_promov3_final_video(
                 edl=edl,
                 source_video_path=source_video_path,
@@ -4543,8 +5250,10 @@ def run_promov3_step5_render(req: PromoV3Step5RenderRequest):
                 custom_game_logo_path=required_game_logo,
                 channel_branding=req.channel_branding.model_dump(),
                 require_official_game_logo=True,
+                **render_optional,
             )
 
+            render_result = _finalize_render_result(render_result, render_options, server_warnings, render_dropped)
             render_result["session_id"] = sess_name
             render_result["video_format"] = resolved_video_format
             render_result["step"] = 5
@@ -4557,7 +5266,10 @@ def run_promov3_step5_render(req: PromoV3Step5RenderRequest):
             except Exception as e:
                 logger.warning(f"Error guardando step5_result.json: {e}")
 
-            job.complete(render_result, "¡Renderizado final Promo V3 completado con éxito!")
+            done_msg = "¡Renderizado final Promo V3 completado con éxito!"
+            if render_result.get("warnings"):
+                done_msg += f" ({len(render_result['warnings'])} aviso(s))"
+            job.complete(render_result, done_msg)
 
         except Exception as e:
             err_details = str(e)
@@ -4591,7 +5303,9 @@ def run_promov3_step5_render(req: PromoV3Step5RenderRequest):
             job.fail(f"Error en Paso 5 (Renderizado Final): {err_details}\n\n{traceback.format_exc()}")
 
     threading.Thread(target=worker, daemon=True).start()
-    return {"status": "ok", "job_id": job.job_id}
+    # Warnings known before rendering (e.g. unsupported fps); the final list,
+    # including engine warnings, arrives in the job/SSE result ("warnings").
+    return {"status": "ok", "job_id": job.job_id, "warnings": list(server_warnings), "render_options": render_options}
 
 
 @app.post("/api/promov3/step5/save")
@@ -4606,7 +5320,7 @@ def save_promov3_step5_endpoint(req: PromoV3Step5SaveRequest):
     if not sess_name:
         raise HTTPException(status_code=400, detail="session_id o video_path es obligatorio")
 
-    sess_dir = BASE_DIR / "temp" / "v3_cache" / sess_name
+    sess_dir = _safe_session_dir(sess_name)
     sess_dir.mkdir(parents=True, exist_ok=True)
     out_file = sess_dir / "step5_result.json"
 
@@ -4627,6 +5341,9 @@ class PromoV3RemixSfxRequest(BaseModel):
     session_id: str
     sfx_tracks: List[Dict[str, Any]]
     gameplay_volume: Optional[float] = 0.15
+    # None -> reuse the options saved with the last render (step5_result.json).
+    audio_normalize: Optional[bool] = None
+    audio_ducking: Optional[bool] = None
 
 
 @app.post("/api/promov3/step5/remix_sfx")
@@ -4640,16 +5357,35 @@ def run_promov3_step5_remix_sfx(req: PromoV3RemixSfxRequest):
     if not sess_name:
         raise HTTPException(status_code=400, detail="session_id es obligatorio")
 
-    sess_dir = BASE_DIR / "temp" / "v3_cache" / sess_name
+    sess_dir = _safe_session_dir(sess_name)
     if not sess_dir.exists():
         raise HTTPException(status_code=404, detail=f"Sesión no encontrada: {sess_name}")
+
+    remix_options: Dict[str, Any] = {}
+    saved_render: Dict[str, Any] = {}
+    s5_file = sess_dir / "step5_result.json"
+    if s5_file.exists():
+        try:
+            saved_render = json.loads(s5_file.read_text(encoding="utf-8")) or {}
+        except Exception:
+            saved_render = {}
+    for opt in ("audio_normalize", "audio_ducking"):
+        value = getattr(req, opt)
+        if value is None:
+            value = saved_render.get(opt)
+        if value is not None:
+            remix_options[opt] = bool(value)
+    remix_optional, _ = _filter_supported_kwargs(remix_promov3_audio_sfx, remix_options)
 
     try:
         updated_data = remix_promov3_audio_sfx(
             session_dir=sess_dir,
             sfx_tracks=req.sfx_tracks,
             gameplay_volume=req.gameplay_volume,
+            **remix_optional,
         )
+        if isinstance(updated_data, dict):
+            updated_data.setdefault("warnings", saved_render.get("warnings") or [])
         return {"status": "ok", "result": updated_data}
     except Exception as e:
         logger.exception("Error re-mezclando SFX")
@@ -4664,7 +5400,7 @@ def get_promov3_game_logo_status(game_name: str = "", session_id: str = ""):
     gname = (game_name or "").strip()
     if not gname and sess_name:
         try:
-            s3_path = BASE_DIR / "temp" / "v3_cache" / sess_name / "step3_script.json"
+            s3_path = _safe_session_dir(sess_name) / "step3_script.json"
             if s3_path.exists():
                 with open(s3_path, "r", encoding="utf-8") as f:
                     s3d = json.load(f)
@@ -4690,7 +5426,7 @@ async def upload_promov3_game_logo(
     if not file.filename:
         raise HTTPException(status_code=400, detail="Archivo inválido")
     sess_name = (session_id or "").strip()
-    target_dir = BASE_DIR / "temp" / "v3_cache" / (sess_name or "global")
+    target_dir = _safe_session_dir(sess_name or "global")
     target_dir.mkdir(parents=True, exist_ok=True)
 
     dest_path = target_dir / "custom_game_logo.png"
@@ -4698,12 +5434,15 @@ async def upload_promov3_game_logo(
 
     from PIL import Image
     import io
-    try:
-        img = Image.open(io.BytesIO(contents)).convert("RGBA")
-        img.save(dest_path, format="PNG")
-    except Exception as img_err:
-        with open(dest_path, "wb") as f:
-            f.write(contents)
+
+    def _save_logo() -> None:
+        try:
+            img = Image.open(io.BytesIO(contents)).convert("RGBA")
+            img.save(dest_path, format="PNG")
+        except Exception:
+            _write_bytes_file(dest_path, contents)
+
+    await run_in_threadpool(_save_logo)
 
     ts = int(time.time())
     url = f"/media/temp/v3_cache/{sess_name}/custom_game_logo.png?t={ts}" if sess_name else f"/media/temp/v3_cache/global/custom_game_logo.png?t={ts}"
@@ -4721,7 +5460,7 @@ async def upload_promov3_game_logo(
 def delete_promov3_game_logo(session_id: str = "", game_name: str = ""):
     """Delete uploaded custom game logo."""
     sess_name = (session_id or "").strip()
-    target_dir = BASE_DIR / "temp" / "v3_cache" / (sess_name or "global")
+    target_dir = _safe_session_dir(sess_name or "global")
     custom_file = target_dir / "custom_game_logo.png"
     if custom_file.exists():
         custom_file.unlink(missing_ok=True)
@@ -4736,23 +5475,11 @@ UPLOADED_VIDEOS_DATA_FILE = BASE_DIR / "data" / "uploaded_videos.json"
 
 
 def _load_uploaded_videos_data() -> List[dict]:
-    if not UPLOADED_VIDEOS_DATA_FILE.exists():
-        return []
-    try:
-        with open(UPLOADED_VIDEOS_DATA_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            if isinstance(data, list):
-                return data
-            return []
-    except Exception as e:
-        logger.warning(f"Error loading uploaded videos from {UPLOADED_VIDEOS_DATA_FILE}: {e}")
-        return []
+    return _load_list_state(UPLOADED_VIDEOS_DATA_FILE)
 
 
 def _save_uploaded_videos_data(records: List[dict]):
-    UPLOADED_VIDEOS_DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(UPLOADED_VIDEOS_DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(records, f, indent=2, ensure_ascii=False)
+    json_store.save_json_atomic(UPLOADED_VIDEOS_DATA_FILE, records)
 
 
 class PromoV3ApproveRequest(BaseModel):
@@ -4774,6 +5501,7 @@ class VideoMetricsUpdateRequest(BaseModel):
 
 
 @app.post("/api/promov3/step5/approve")
+@_state_locked(UPLOADED_VIDEOS_DATA_FILE)
 def approve_promov3_video_endpoint(req: PromoV3ApproveRequest):
     """
     Approves a rendered video for uploading:
@@ -4786,7 +5514,7 @@ def approve_promov3_video_endpoint(req: PromoV3ApproveRequest):
     account_clean = raw_account.upper() if raw_account.upper() in ["IGD", "GUAM"] else raw_account
 
     sess_name = (req.session_id or "").strip()
-    v3_dir = (BASE_DIR / "temp" / "v3_cache" / sess_name) if sess_name else None
+    v3_dir = _safe_session_dir(sess_name) if sess_name else None
 
     # Resolve game name
     game_name = (req.game_name or "").strip()
@@ -5014,7 +5742,7 @@ def approve_promov3_video_endpoint(req: PromoV3ApproveRequest):
 def get_promov3_approval_status(session_id: Optional[str] = None, game_name: Optional[str] = None):
     """Checks whether the given session or game has been approved for upload."""
     sess_name = (session_id or "").strip()
-    v3_dir = (BASE_DIR / "temp" / "v3_cache" / sess_name) if sess_name else None
+    v3_dir = _safe_session_dir(sess_name) if sess_name else None
 
     if v3_dir and v3_dir.exists() and (v3_dir / "approval.json").exists():
         try:
@@ -5046,6 +5774,7 @@ def list_uploaded_videos(account: Optional[str] = None, game_name: Optional[str]
 
 
 @app.post("/api/videos/metrics")
+@_state_locked(UPLOADED_VIDEOS_DATA_FILE)
 def update_video_metrics(req: VideoMetricsUpdateRequest):
     """Updates performance metrics for an approved video in data/uploaded_videos.json."""
     records = _load_uploaded_videos_data()
@@ -5065,6 +5794,7 @@ def update_video_metrics(req: VideoMetricsUpdateRequest):
 
 
 @app.delete("/api/videos/uploaded/{video_id}")
+@_state_locked(UPLOADED_VIDEOS_DATA_FILE)
 def delete_uploaded_video(video_id: str):
     """Removes an approved video from data/uploaded_videos.json and cleans up session approval if applicable."""
     records = _load_uploaded_videos_data()
@@ -5084,7 +5814,7 @@ def delete_uploaded_video(video_id: str):
     # Clean up session approval cache if session_id exists
     sess_name = removed_record.get("session_id")
     if sess_name:
-        v3_dir = BASE_DIR / "temp" / "v3_cache" / sess_name
+        v3_dir = _safe_session_dir_or_none(sess_name) or (V3_CACHE_DIR / "__invalid_session__")
         if v3_dir.exists():
             appr_path = v3_dir / "approval.json"
             if appr_path.exists():
@@ -5174,13 +5904,12 @@ async def upload_file(file: UploadFile = File(...)):
     upload_dir = BASE_DIR / "temp" / "uploads"
     upload_dir.mkdir(parents=True, exist_ok=True)
     
-    clean_filename = f"{uuid.uuid4().hex[:6]}_{file.filename}"
-    dest_path = upload_dir / clean_filename
-    
-    with open(dest_path, "wb") as f:
-        content = await file.read()
-        f.write(content)
-        
+    clean_filename = f"{uuid.uuid4().hex[:6]}_{_safe_upload_basename(file.filename)}"
+    dest_path = _safe_child_path(upload_dir, clean_filename)
+
+    content = await file.read()
+    await run_in_threadpool(_write_bytes_file, dest_path, content)
+
     return {
         "status": "ok",
         "filename": file.filename,
@@ -5198,6 +5927,10 @@ def ingest_youtube_video(req: YouTubeIngestRequest):
     url = req.url.strip()
     if not ("youtube.com" in url.lower() or "youtu.be" in url.lower()):
         raise HTTPException(status_code=400, detail="La URL especificada no parece ser un enlace de YouTube válido.")
+    try:
+        url = _validate_http_url(url)
+    except ValueError as url_err:
+        raise HTTPException(status_code=400, detail=str(url_err))
 
     game_name = (req.game_name or "").strip()
     if game_name:
@@ -5422,8 +6155,8 @@ def render_single_video(req: SingleRenderRequest):
     def worker():
         try:
             cfg = AppConfig.from_env()
-            groq_key = req.groq_api_key or cfg.groq_api_key
-            gemini_key = req.gemini_api_key or cfg.gemini_api_key
+            groq_key = _client_secret_or_env(req.groq_api_key, cfg.groq_api_key)
+            gemini_key = _client_secret_or_env(req.gemini_api_key, cfg.gemini_api_key)
             
             job.update(10.0, "Preparando origen del vídeo...", "Validando archivo/enlace...")
             
@@ -5435,6 +6168,7 @@ def render_single_video(req: SingleRenderRequest):
             if req.source_type == "youtube":
                 if not req.youtube_url:
                     raise ValueError("URL de YouTube requerida")
+                _validate_http_url(req.youtube_url)
                 input_video_path = input_dir / f"yt_{run_id}.mp4"
                 job.update(20.0, f"Descargando clip de YouTube (seg {req.start_sec} a {req.end_sec})...", f"URL: {req.youtube_url}")
                 download_youtube_clip(
@@ -5578,6 +6312,7 @@ def get_batch():
 
 
 @app.post("/api/batch/add")
+@_state_locked(BATCH_QUEUE_FILE)
 def add_to_batch(item: BatchItemModel):
     """Add a video job to the batch queue, populating default preset properties."""
     queue = load_batch_queue()
@@ -5623,6 +6358,7 @@ def add_to_batch(item: BatchItemModel):
 
 
 @app.post("/api/batch/update")
+@_state_locked(BATCH_QUEUE_FILE)
 def update_batch_item(item: BatchItemModel):
     """Update an existing batch task with modified parameters."""
     if not item.id:
@@ -5650,6 +6386,7 @@ def update_batch_item(item: BatchItemModel):
 
 
 @app.delete("/api/batch/{item_id}")
+@_state_locked(BATCH_QUEUE_FILE)
 def remove_from_batch(item_id: str):
     """Remove an item from batch queue by ID."""
     queue = load_batch_queue()
@@ -5659,6 +6396,7 @@ def remove_from_batch(item_id: str):
 
 
 @app.post("/api/batch/clear")
+@_state_locked(BATCH_QUEUE_FILE)
 def clear_batch():
     """Clear all items from batch queue."""
     save_batch_queue([])
@@ -5998,6 +6736,21 @@ def delete_benchmark_history():
 # API Endpoints: V1 Multi-Video Pipeline Automation
 # =============================================================================
 
+def _validate_http_url(url: Any) -> str:
+    """Return the stripped URL if it is a plain http(s) URL, else raise ValueError.
+
+    Guards the yt-dlp command lines built here: a value such as "--exec ..." or a
+    file:// URL must never reach yt-dlp as an option or a local file reference.
+    """
+    candidate = str(url or "").strip()
+    if not candidate or candidate.startswith("-") or any(ord(ch) < 32 or ch.isspace() for ch in candidate):
+        raise ValueError("URL inválida: debe ser un enlace http(s) válido.")
+    parsed = urllib.parse.urlparse(candidate)
+    if parsed.scheme.lower() not in ("http", "https") or not parsed.netloc:
+        raise ValueError("URL inválida: solo se admiten enlaces http:// o https://.")
+    return candidate
+
+
 def download_youtube_trailer(
     url: str,
     output_path: Path,
@@ -6009,6 +6762,7 @@ def download_youtube_trailer(
     """Download trailer from YouTube using yt-dlp, trimming to max_duration if necessary.
     Optionally applies physical camera-recording-monitor simulation in a single FFmpeg pass.
     """
+    url = _validate_http_url(url)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     temp_dir = BASE_DIR / "temp"
     temp_dir.mkdir(exist_ok=True)
@@ -6026,13 +6780,14 @@ def download_youtube_trailer(
         sys.executable, "-m", "yt_dlp",
         "-f", "bestvideo+bestaudio/best",
         "--merge-output-format", "mp4",
+        # Kept on purpose: some user machines sit behind TLS-intercepting antivirus/proxies.
         "--no-check-certificates",
         "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
         "-o", str(temp_dl),
     ]
     if ffmpeg_dir:
         cmd_ytdlp += ["--ffmpeg-location", ffmpeg_dir]
-    cmd_ytdlp.append(url)
+    cmd_ytdlp += ["--", url]  # "--": the URL can never be parsed as a yt-dlp option
 
     res = subprocess.run(cmd_ytdlp, capture_output=True, text=True, timeout=300)
     if res.returncode != 0:
@@ -6044,10 +6799,10 @@ def download_youtube_trailer(
             "--no-check-certificates",
             "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
             "-o", str(temp_dl),
-            url
         ]
         if ffmpeg_dir:
             cmd_fallback += ["--ffmpeg-location", ffmpeg_dir]
+        cmd_fallback += ["--", url]
         res_fb = subprocess.run(cmd_fallback, capture_output=True, text=True, timeout=300)
         if res_fb.returncode != 0:
             raise RuntimeError(f"Fallo en descarga con yt-dlp: {res_fb.stderr or res.stderr}")
@@ -6130,6 +6885,11 @@ def download_youtube_trailer(
 @app.post("/api/v1/process-trailer")
 def process_trailer_v1(req: V1ProcessTrailerRequest):
     """Trigger complete V1 Short-Form pipeline on a trailer from the database."""
+    if req.url and req.url.strip():
+        try:
+            _validate_http_url(req.url)
+        except ValueError as url_err:
+            raise HTTPException(status_code=400, detail=str(url_err))
     job = create_job("v1_pipeline")
 
     def worker():
@@ -6292,7 +7052,7 @@ def open_output_folder():
     out_dir.mkdir(parents=True, exist_ok=True)
     try:
         if sys.platform == "win32":
-            subprocess.Popen(f'explorer "{out_dir}"')
+            subprocess.Popen(["explorer", str(out_dir)])
         else:
             subprocess.Popen(["xdg-open", str(out_dir)])
         return {"status": "ok", "path": str(out_dir)}
@@ -6509,6 +7269,7 @@ class PromoDescriptionRequest(BaseModel):
     script_text: Optional[str] = ""
     hashtags: Optional[str] = ""
     hook_type: Optional[str] = "steam_new_game"
+    opening_text: Optional[str] = ""
 
 
 class PromoDescriptionSaveRequest(BaseModel):
@@ -6538,7 +7299,14 @@ def generate_promo_social_description(req: PromoDescriptionRequest):
     
     tags_str = " ".join(tags_list)
 
-    hook_hint = "Here's a new Steam game you won't want to miss! 🎮🔥" if req.hook_type == "steam_new_game" else "So in this new game, check out what happens! 🎮🔥"
+    if req.hook_type == "steam_new_game":
+        hook_hint = "Here's a new Steam game you won't want to miss! 🎮🔥"
+    elif req.hook_type == "custom" and (req.opening_text or "").strip():
+        hook_hint = f"{req.opening_text.strip()} 🎮🔥"
+    elif req.hook_type in ("direct", "custom"):
+        hook_hint = "Lead with the game's strongest moment or payoff (no generic opener). 🎮🔥"
+    else:
+        hook_hint = "So in this new game, check out what happens! 🎮🔥"
 
     prompt = f"""You are an elite viral gaming copywriter for TikTok, Instagram Reels, and YouTube Shorts.
 Write an engaging social media post description for this indie game:
@@ -6604,7 +7372,12 @@ Do not include markdown headers (like '## Description' or brackets). Output ONLY
 
     if not description:
         # Fallback template
-        hook_line = "Here's a new Steam game you won't want to miss! 🎮🔥" if req.hook_type == "steam_new_game" else f"Check out {req.game_name}! 🎮🔥"
+        if req.hook_type == "steam_new_game":
+            hook_line = "Here's a new Steam game you won't want to miss! 🎮🔥"
+        elif req.hook_type == "custom" and (req.opening_text or "").strip():
+            hook_line = f"{req.opening_text.strip()} 🎮🔥"
+        else:
+            hook_line = f"Check out {req.game_name}! 🎮🔥"
         description = f"{hook_line}\n\n{req.game_name} brings unique gameplay, intense atmosphere, and hours of fun. Check out the demo!\n\n👉 Add {req.game_name} to your Steam Wishlist now!\n\nad {tags_str}"
 
     return {
@@ -6715,7 +7488,12 @@ def process_promo_pipeline(req: PromoProcessRequest):
                 if not clean_script:
                     raise ValueError("Por favor introduce el guión correspondiente al audio de tu vídeo montado para sincronizar los subtítulos.")
 
-                clean_script = ensure_steam_hook_prefix(clean_script)
+                fin_hook_type = _hook_type_value(getattr(req, "hook_type", "steam_new_game"))
+                fin_uses_splash = _uses_steam_splash(fin_hook_type)
+                if fin_uses_splash:
+                    clean_script = ensure_steam_hook_prefix(clean_script)
+                elif fin_hook_type == "custom":
+                    clean_script = _apply_custom_opening(clean_script, getattr(req, "opening_text", ""))
                 total_duration = audio_dur if audio_dur > 0.5 else (req.target_duration if req.target_duration > 0 else 30.0)
 
                 job.update(35.0, f"Sincronizando guión y marcas de tiempo ({total_duration:.1f}s)...", "Alineando palabras y generando subtítulos dinámicos...")
@@ -6725,7 +7503,10 @@ def process_promo_pipeline(req: PromoProcessRequest):
                     target_duration=total_duration,
                 )
                 raw_words = alignment.get("words", [])
-                _, hook_duration = filter_steam_hook_words(raw_words)
+                if fin_uses_splash:
+                    _, hook_duration = filter_steam_hook_words(raw_words)
+                else:
+                    hook_duration = 0.0  # no Steam prefix spoken: captions start at 0, no splash
 
                 # Determine target resolution and caption margins
                 user_font_size = int(req.captions_font_size if req.captions_font_size is not None else 84)
@@ -6762,7 +7543,7 @@ def process_promo_pipeline(req: PromoProcessRequest):
                     word_by_word=True,
                     margin_v=margin_v,
                     highlight_color=highlight_col,
-                    skip_steam_hook=True,
+                    skip_steam_hook=fin_uses_splash,
                 )
 
                 job.update(65.0, "Generando gancho visual de Steam...", f"Apertura Steam Hook ({hook_duration:.2f}s)...")
@@ -6770,6 +7551,8 @@ def process_promo_pipeline(req: PromoProcessRequest):
                 hook_overlay_mov = temp_dir / "steam_hook_overlay.mov"
                 has_hook_overlay = False
                 try:
+                    if not fin_uses_splash or hook_duration <= 0:
+                        raise RuntimeError("Apertura sin frase Steam: se omite el rótulo 'NEW STEAM GAME'.")
                     generate_steam_hook_overlay_video(
                         output_mov_path=hook_overlay_mov,
                         duration=hook_duration,
@@ -6874,17 +7657,14 @@ def process_promo_pipeline(req: PromoProcessRequest):
                     if not clean_script:
                         raise ValueError("No has subido archivo de voz ni has introducido un guión. Por favor genera o escribe un guión para sintetizar la locución.")
 
-                    hook_type = getattr(req, "hook_type", "steam_new_game") or "steam_new_game"
+                    hook_type = _hook_type_value(getattr(req, "hook_type", "steam_new_game"))
                     is_steam_hook = (hook_type == "steam_new_game")
 
-                    if is_steam_hook:
-                        clean_script = ensure_steam_hook_prefix(clean_script)
-                    elif hook_type == "so_in_this_new_game":
-                        if not clean_script.lower().startswith("so in this new game"):
-                            first_char = clean_script[0].lower() if len(clean_script) > 1 else ""
-                            clean_script = f"So in this new game, {first_char}{clean_script[1:]}" if clean_script else "So in this new game, check out what happens."
+                    # steam_new_game / so_in_this_new_game: unchanged behaviour.
+                    # custom: starts with opening_text. direct: no formulaic opener.
+                    clean_script = _apply_spoken_opening(clean_script, hook_type, getattr(req, "opening_text", ""))
 
-                    eleven_key = (req.elevenlabs_api_key or cfg.elevenlabs_api_key or "").strip()
+                    eleven_key = _client_secret_or_env(req.elevenlabs_api_key, cfg.elevenlabs_api_key)
                     if not eleven_key:
                         raise ValueError("Para generar la voz automáticamente a partir del guión, necesitas configurar tu ElevenLabs API Key en la pestaña Configuración.")
 
@@ -6992,9 +7772,14 @@ def process_promo_pipeline(req: PromoProcessRequest):
                         margin_v = captions_y
                     framing_mode_to_use = "center_crop"
 
-                # Measure hook duration for Steam Hook overlay
+                # Measure hook duration for Steam Hook overlay (only when a Steam-style
+                # opener is spoken; direct/custom openers keep captions from second 0).
+                v2_uses_splash = _uses_steam_splash(getattr(req, "hook_type", "steam_new_game"))
                 raw_words = alignment.get("words", [])
-                _, hook_duration = filter_steam_hook_words(raw_words)
+                if v2_uses_splash:
+                    _, hook_duration = filter_steam_hook_words(raw_words)
+                else:
+                    hook_duration = 0.0
 
                 ass_sub_path = temp_dir / "kinetic_captions.ass"
                 highlight_col = req.captions_highlight_color or "#FFF380"
@@ -7007,7 +7792,7 @@ def process_promo_pipeline(req: PromoProcessRequest):
                     word_by_word=True,
                     margin_v=margin_v,
                     highlight_color=highlight_col,
-                    skip_steam_hook=True,
+                    skip_steam_hook=v2_uses_splash,
                 )
 
                 ffmpeg_bin = cfg.ffmpeg_path or "ffmpeg"
@@ -7146,6 +7931,8 @@ def process_promo_pipeline(req: PromoProcessRequest):
                 hook_overlay_mov = temp_dir / "steam_hook_overlay.mov"
                 has_hook_overlay = False
                 try:
+                    if not v2_uses_splash or hook_duration <= 0:
+                        raise RuntimeError("Apertura sin frase Steam: se omite el rótulo 'NEW STEAM GAME'.")
                     generate_steam_hook_overlay_video(
                         output_mov_path=hook_overlay_mov,
                         duration=hook_duration,
@@ -7556,7 +8343,7 @@ def get_promov3_session_endpoint(video_path: Optional[str] = None, session_id: O
     v3_dir = None
 
     if session_id:
-        cand = v3_cache_dir / session_id
+        cand = _safe_session_dir(session_id)
         if cand.exists() and cand.is_dir():
             v3_dir = cand
 
@@ -7734,7 +8521,7 @@ def save_promov3_step1_endpoint(req: PromoV3Step1SaveRequest):
     if not raw_step1:
         raise HTTPException(status_code=400, detail="step1_result o result es obligatorio")
 
-    sess_dir = BASE_DIR / "temp" / "v3_cache" / sess_name
+    sess_dir = _safe_session_dir(sess_name)
     sess_dir.mkdir(parents=True, exist_ok=True)
     out_file = sess_dir / "step1_shots.json"
 
@@ -7784,7 +8571,7 @@ def save_promov3_step2_endpoint(req: PromoV3Step2SaveRequest):
     if not raw_step2:
         raise HTTPException(status_code=400, detail="step2_result o result es obligatorio")
 
-    sess_dir = BASE_DIR / "temp" / "v3_cache" / sess_name
+    sess_dir = _safe_session_dir(sess_name)
     sess_dir.mkdir(parents=True, exist_ok=True)
     out_file = sess_dir / "step2_evaluated_shots.json"
 
@@ -8050,7 +8837,7 @@ def organize_promov3_game_footage(req: PromoV3OrganizeFootageRequest):
     # If session_id provided, sync step1 and step2 bidirectionally
     sess_id = req.session_id
     if sess_id:
-        sess_dir = BASE_DIR / "temp" / "v3_cache" / sess_id
+        sess_dir = _safe_session_dir(sess_id)
         if sess_dir.exists():
             for step_json in ["step1_shots.json", "step2_evaluated_shots.json"]:
                 sf = sess_dir / step_json
@@ -8210,7 +8997,7 @@ def load_promov3_game(game_name: str):
 
     # Mirror to canonical v3_cache session so subsequent endpoints immediately find the files
     if session_id:
-        sess_dir = v3_cache_dir / session_id
+        sess_dir = _safe_session_dir(session_id)
         sess_dir.mkdir(parents=True, exist_ok=True)
         if step1_data and not (sess_dir / "step1_shots.json").exists():
             try:
@@ -8443,7 +9230,7 @@ def run_promov3_step1_detect(req: PromoV3DetectRequest):
         raise HTTPException(status_code=400, detail="No se pudo encontrar ninguno de los archivos de vídeo indicados.")
 
     if req.session_id and req.session_id.strip():
-        sess_name = req.session_id.strip()
+        sess_name = _validate_session_id(req.session_id)
     elif len(resolved_paths) == 1:
         sess_name = get_canonical_v3_session_id(str(resolved_paths[0]))
     else:
@@ -8455,7 +9242,7 @@ def run_promov3_step1_detect(req: PromoV3DetectRequest):
             job.update(5.0, f"Inspeccionando {total_videos} archivo(s) de vídeo original(es)...", "Iniciando análisis ffprobe")
 
             # Session folder in temp/v3_cache
-            v3_dir = BASE_DIR / "temp" / "v3_cache" / sess_name
+            v3_dir = _safe_session_dir(sess_name)
             v3_dir.mkdir(parents=True, exist_ok=True)
             shots_dir = v3_dir / "shots"
             shots_dir.mkdir(parents=True, exist_ok=True)
@@ -8723,7 +9510,7 @@ def run_promov3_step2_analyze(req: PromoV3Step2Request):
     step1_json_path = None
 
     if req.session_id:
-        cand = v3_cache_dir / req.session_id
+        cand = _safe_session_dir(req.session_id)
         if cand.exists() and (cand / "step1_shots.json").exists():
             v3_dir = cand
             step1_json_path = cand / "step1_shots.json"
@@ -9142,12 +9929,11 @@ async def api_steam_carousel_upload_bg(bg_file: UploadFile = File(...)):
     temp_upload_dir = BASE_DIR / "temp" / "uploads"
     temp_upload_dir.mkdir(parents=True, exist_ok=True)
 
-    unique_name = f"bg_{uuid.uuid4().hex[:8]}_{Path(bg_file.filename).name}"
-    dest_path = temp_upload_dir / unique_name
+    unique_name = f"bg_{uuid.uuid4().hex[:8]}_{_safe_upload_basename(bg_file.filename, default_stem='bg')}"
+    dest_path = _safe_child_path(temp_upload_dir, unique_name)
 
     contents = await bg_file.read()
-    with open(dest_path, "wb") as f:
-        f.write(contents)
+    await run_in_threadpool(_write_bytes_file, dest_path, contents)
 
     # Base64 data URI
     mime = "png" if ext == ".png" else "jpeg" if ext in [".jpg", ".jpeg"] else "webp"
@@ -9652,6 +10438,10 @@ def api_setup_trailer_load_youtube(req: SetupTrailerYoutubeRequest):
     url = req.url.strip() if req.url else ""
     if not url or not ("youtube.com" in url.lower() or "youtu.be" in url.lower()):
         raise HTTPException(status_code=400, detail="Por favor proporciona un enlace de YouTube válido (ej. https://www.youtube.com/watch?v=...)")
+    try:
+        url = _validate_http_url(url)
+    except ValueError as url_err:
+        raise HTTPException(status_code=400, detail=str(url_err))
 
     dest_dir = BASE_DIR / "static" / "setupbackground"
     dest_dir.mkdir(parents=True, exist_ok=True)
@@ -10040,10 +10830,10 @@ async def api_analyze_retention(
         try:
             if file_reels:
                 contents = await file_reels.read()
-                res = analyze_reels_retention(contents, manual_duration=duration_reels)
+                res = await run_in_threadpool(analyze_reels_retention, contents, manual_duration=duration_reels)
             else:
                 sample_p = sample_dir / "reels_sample.jpg"
-                res = analyze_reels_retention(str(sample_p), manual_duration=duration_reels)
+                res = await run_in_threadpool(analyze_reels_retention, str(sample_p), manual_duration=duration_reels)
             results["reels"] = res
         except Exception as e:
             logger.error(f"Error analizando Reels: {e}", exc_info=True)
@@ -10054,10 +10844,10 @@ async def api_analyze_retention(
         try:
             if file_youtube:
                 contents = await file_youtube.read()
-                res = analyze_youtube_retention(contents, manual_duration=duration_youtube)
+                res = await run_in_threadpool(analyze_youtube_retention, contents, manual_duration=duration_youtube)
             else:
                 sample_p = sample_dir / "youtube_sample.jpg"
-                res = analyze_youtube_retention(str(sample_p), manual_duration=duration_youtube)
+                res = await run_in_threadpool(analyze_youtube_retention, str(sample_p), manual_duration=duration_youtube)
             results["youtube"] = res
         except Exception as e:
             logger.error(f"Error analizando YouTube: {e}", exc_info=True)
@@ -10068,10 +10858,10 @@ async def api_analyze_retention(
         try:
             if file_tiktok:
                 contents = await file_tiktok.read()
-                res = analyze_tiktok_retention(contents, manual_duration=duration_tiktok)
+                res = await run_in_threadpool(analyze_tiktok_retention, contents, manual_duration=duration_tiktok)
             else:
                 sample_p = sample_dir / "tiktok_sample.jpg"
-                res = analyze_tiktok_retention(str(sample_p), manual_duration=duration_tiktok)
+                res = await run_in_threadpool(analyze_tiktok_retention, str(sample_p), manual_duration=duration_tiktok)
             results["tiktok"] = res
         except Exception as e:
             logger.error(f"Error analizando TikTok: {e}", exc_info=True)
