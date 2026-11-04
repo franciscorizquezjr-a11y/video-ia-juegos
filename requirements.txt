@@ -15,7 +15,9 @@ yt-dlp>=2024.3.10
 Pillow>=10.0.0
 rembg[cpu]>=2.0.60
 numpy>=1.26.0
-opencv-python>=4.8.0
+# OpenCV 5.x breaks steam_logo_lab's MSER logo detection (detect_logo finds
+# nothing); 4.x (verified with 4.14) works. Keep below 5 until it is re-tested.
+opencv-python>=4.8,<5
 scenedetect>=0.6.4
 torch>=2.2.0
 torchvision>=0.17.0

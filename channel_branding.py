@@ -1,10 +1,11 @@
 """Optional channel badges shared by Klip preview and FFmpeg export."""
 from __future__ import annotations
 import json
-import os
 from pathlib import Path
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 from pydantic import BaseModel, Field
+
+from fonts import load_font
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -34,16 +35,9 @@ def build_channel_badge(settings: ChannelBrandingSettings, width=1080, height=19
     scale = width / 1080
     size = max(1, round(settings.size * scale))
     font_size = max(1, round(settings.size * .47 * scale))
-    font_dir = Path(os.environ.get("WINDIR", "C:/Windows")) / "Fonts"
-    font = None
-    for candidate in (font_dir / "seguisb.ttf", font_dir / "arialbd.ttf", "DejaVuSans-Bold.ttf"):
-        try:
-            font = ImageFont.truetype(str(candidate), font_size)
-            break
-        except OSError:
-            continue
-    if font is None:
-        font = ImageFont.load_default(size=font_size)
+    # %WINDIR%/Fonts first (Segoe UI Semibold, Arial Bold), then Linux/macOS
+    # folders, DejaVu Sans Bold and PIL's default font.
+    font = load_font(["seguisb.ttf", "arialbd.ttf"], font_size, bold=True)
     text = " ".join(settings.text.split())
     stroke = max(1, round(scale))
     box = font.getbbox(text, stroke_width=stroke) if text else (0, 0, 0, 0)
