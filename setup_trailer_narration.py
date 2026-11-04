@@ -26,19 +26,44 @@ def media_duration(path, ffmpeg_bin="ffmpeg"):
 
 
 
-def prepare_narration(text, cfg, cache_dir, max_duration, ffmpeg_bin="ffmpeg"):
+def _voice_value(value, cfg, attr, default):
+    """Explicit argument, else an optional cfg attribute, else the historical default."""
+    for candidate in (value, getattr(cfg, attr, None)):
+        if candidate is None or candidate == "":
+            continue
+        try:
+            number=float(candidate)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(number):
+            return number
+    return default
+
+
+def prepare_narration(text, cfg, cache_dir, max_duration, ffmpeg_bin="ffmpeg", speed=None, stability=None, similarity_boost=None):
+    """Synthesize (or reuse) the trailer narration. speed/stability/similarity_boost are
+    optional (also read from cfg.elevenlabs_speed/_stability/_similarity_boost when present);
+    the defaults keep the historical voice: speed 1.0, stability 0.5, similarity 0.75."""
     from audio_aligner import synthesize_elevenlabs_with_timestamps
     text=(text or "").strip()
     if not text:
         raise ValueError("Escribe un guion de narración o el texto de la tarjeta.")
-    identity=json.dumps([text,cfg.elevenlabs_voice_id,cfg.elevenlabs_model,"continuous_v2",1.0],ensure_ascii=False)
+    speed=_voice_value(speed,cfg,"elevenlabs_speed",1.0)
+    stability=_voice_value(stability,cfg,"elevenlabs_stability",0.5)
+    similarity_boost=_voice_value(similarity_boost,cfg,"elevenlabs_similarity_boost",0.75)
+    # The default identity is unchanged so voices cached before these options stay valid.
+    parts=[text,cfg.elevenlabs_voice_id,cfg.elevenlabs_model,"continuous_v2",speed]
+    if (stability,similarity_boost)!=(0.5,0.75):
+        parts+=[stability,similarity_boost]
+    identity=json.dumps(parts,ensure_ascii=False)
     folder=Path(cache_dir)/hashlib.sha256(identity.encode()).hexdigest()[:24]
     folder.mkdir(parents=True,exist_ok=True)
     audio=folder/"voice.mp3"; timing=folder/"words.json"
     if audio.is_file() and timing.is_file():
         words=json.loads(timing.read_text(encoding="utf-8"))
     else:
-        _,words,_=synthesize_elevenlabs_with_timestamps(text,audio,cfg.elevenlabs_api_key,cfg.elevenlabs_voice_id,cfg.elevenlabs_model,natural_delivery=True)
+        _,words,_=synthesize_elevenlabs_with_timestamps(text,audio,cfg.elevenlabs_api_key,cfg.elevenlabs_voice_id,cfg.elevenlabs_model,natural_delivery=True,
+                                                        speed=speed,stability=stability,similarity_boost=similarity_boost)
         if not words:
             raise ValueError("La voz no contiene tiempos de palabras para los subtítulos. Reintenta la generación.")
         timing.write_text(json.dumps(words,ensure_ascii=False,indent=2),encoding="utf-8")

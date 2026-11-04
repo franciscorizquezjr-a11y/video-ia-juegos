@@ -983,6 +983,58 @@ def ensure_hook_type_prefix(text: str, hook_type: str = "steam_new_game") -> str
     return ensure_steam_hook_prefix(cleaned)
 
 
+def _voice_clean_keep_opening(text: str, opening_text: str = "") -> str:
+    """clean_script_text_for_voice, except a leading custom opening stays verbatim
+    (no contractions or comma-to-semicolon changes inside a campaign-mandated phrase)."""
+    try:
+        from audio_aligner import clean_script_text_for_voice
+    except Exception:
+        return (text or "").strip()
+    from script_retention import normalize_opening_text, opening_prefix_end
+    body = (text or "").strip()
+    opening = normalize_opening_text(opening_text)
+    end = opening_prefix_end(body, opening) if opening else None
+    if end is None:
+        return clean_script_text_for_voice(body)
+    head, rest = body[:end], clean_script_text_for_voice(body[end:])
+    if not rest:
+        return head.strip()
+    joiner = "" if rest[:1] in ",.;:!?" else " "
+    return head.strip() + joiner + rest
+
+
+def apply_opening(text: str, hook_type: str = "steam_new_game", opening_text: str = "") -> str:
+    """Return the voiceover script with the opener required by hook_type.
+
+    - steam_new_game: ensure_steam_hook_prefix (current default behaviour).
+    - so_in_this_new_game: ensure_hook_type_prefix (current behaviour for that mode).
+    - custom: the script starts with opening_text verbatim (added if missing).
+    - direct: a leading formulaic opener ("Here's a new Steam game", "So in this new game")
+      is removed when the rest still reads as a sentence.
+    Unknown hook types (e.g. "caveman") leave the text untouched.
+    """
+    from script_retention import (
+        HOOK_TYPES, HOOK_TYPE_CUSTOM, HOOK_TYPE_DIRECT, HOOK_TYPE_SO_IN_THIS_NEW_GAME,
+        ensure_opening_text, resolve_hook_type, strip_formulaic_opener,
+    )
+    raw_mode = str(hook_type or "steam_new_game").strip().lower()
+    if raw_mode not in HOOK_TYPES:
+        return (text or "").strip()
+    mode = resolve_hook_type(raw_mode, opening_text)
+    if mode == HOOK_TYPE_CUSTOM:
+        return _voice_clean_keep_opening(ensure_opening_text(text or "", opening_text), opening_text)
+    if mode == HOOK_TYPE_DIRECT:
+        stripped = strip_formulaic_opener(text or "")
+        try:
+            from audio_aligner import clean_script_text_for_voice
+            return clean_script_text_for_voice(stripped)
+        except Exception:
+            return stripped
+    if mode == HOOK_TYPE_SO_IN_THIS_NEW_GAME:
+        return ensure_hook_type_prefix(text, "so_in_this_new_game")
+    return ensure_steam_hook_prefix(text)
+
+
 def load_viral_script_examples(max_examples: int = 50) -> str:
     """
     Loads ALL viral reference scripts and structural analysis blueprint for the LLM prompt.
@@ -1048,16 +1100,33 @@ def generate_v2_script(
     gemini_api_key: str | None = None,
     script_mode: str = "normal",
     game_genre: str = "",
+    opening_text: str = "",
+    speech_speed: float = 1.12,
 ) -> dict:
     """
     Generate high-retention viral promo script for Trapster / Short V2 IA using
     structured Hook Construction (First Words, Game Genre, First Punch, Second Punch)
     and Retention Construction (Setup, Escalation, Payoff, CTA, Open Loops).
+
+    hook_type: "steam_new_game" (default), "so_in_this_new_game", "direct" (no formula
+    opener) or "custom" (starts exactly with opening_text). speech_speed is the voice
+    speed that will be used, so the word budget matches the final narration.
     """
     import requests
     from script_retention import (
+        HOOK_TYPE_CUSTOM,
+        HOOK_TYPE_DIRECT,
         build_retention_script_prompt,
         parse_and_repair_retention_script,
+        resolve_hook_type,
+    )
+
+    opening_mode = resolve_hook_type(hook_type, opening_text)
+    if script_mode == "caveman" and opening_mode == HOOK_TYPE_DIRECT:
+        opening_mode = "steam_new_game"  # the caveman formula is its own opener
+    opening_instruction = (
+        "Follow the user prompt's OPENING MODE exactly; it overrides the openings of the reference scripts. "
+        if opening_mode in (HOOK_TYPE_DIRECT, HOOK_TYPE_CUSTOM) else ""
     )
 
     clean_groq_key = groq_api_key.strip().strip('"').strip("'") if groq_api_key else ""
@@ -1080,6 +1149,9 @@ def generate_v2_script(
         viral_references=viral_references,
         script_mode=script_mode,
         game_genre=game_genre,
+        hook_type=opening_mode,
+        opening_text=opening_text or "",
+        speech_speed=speech_speed,
     )
 
     last_error = None
@@ -1107,7 +1179,7 @@ def generate_v2_script(
                         "content": (
                             "You are an elite viral gaming scriptwriter and creative director for TikTok, Reels, and YouTube Shorts (Trapster). " +
                             ("Write in simple caveman English with short sentences, following the user prompt's exact hook and retention rules. " if script_mode == "caveman" else "Write in an authentic 'Buddy Hype' conversational tone (excited gamer friend on Discord/TikTok). ") +
-                            "Use kinetic action verbs and concrete physical nouns. Strictly avoid corporate buzzwords (epic, amazing, incredible, delve into, immerse yourself). "
+                            opening_instruction + "Use kinetic action verbs and concrete physical nouns. Strictly avoid corporate buzzwords (epic, amazing, incredible, delve into, immerse yourself). "
                             "You must respond ONLY with valid JSON conforming to the requested schema. "
                             "Never include markdown formatting, backticks, or conversational text."
                         ),
@@ -1158,7 +1230,7 @@ def generate_v2_script(
                     system_instruction=(
                         "You are an elite viral gaming scriptwriter and creative director for TikTok, Reels, and YouTube Shorts (Trapster). " +
                         ("Write in simple caveman English with short sentences, following the user prompt's exact hook and retention rules. " if script_mode == "caveman" else "Write in an authentic 'Buddy Hype' conversational tone (excited gamer friend on Discord/TikTok). ") +
-                        "Use kinetic action verbs and concrete physical nouns. Strictly avoid corporate buzzwords (epic, amazing, incredible, delve into, immerse yourself). "
+                        opening_instruction + "Use kinetic action verbs and concrete physical nouns. Strictly avoid corporate buzzwords (epic, amazing, incredible, delve into, immerse yourself). "
                         "You must respond ONLY with valid JSON conforming to the requested schema. "
                         "Never include markdown formatting, backticks, or conversational text."
                     ),
@@ -1186,12 +1258,18 @@ def generate_v2_script(
         raw_content=raw_response,
         game_name=game_name,
         target_duration=target_duration,
+        hook_type=opening_mode,
+        opening_text=opening_text or "",
     )
 
     clean_text = retention_obj.clean_script_text
     try:
-        from audio_aligner import clean_script_text_for_voice
-        clean_text = clean_script_text_for_voice(clean_text)
+        if opening_mode == HOOK_TYPE_CUSTOM:
+            # Keep the campaign-mandated opening verbatim.
+            clean_text = _voice_clean_keep_opening(clean_text, opening_text)
+        else:
+            from audio_aligner import clean_script_text_for_voice
+            clean_text = clean_script_text_for_voice(clean_text)
     except Exception:
         pass
 

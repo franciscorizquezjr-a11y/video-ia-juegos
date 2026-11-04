@@ -197,6 +197,31 @@ def test_backwards_compatibility_legacy_script():
     assert script_obj.word_count > 25
 
 
+def test_opening_modes_and_speech_speed_budget():
+    # Word budget follows the voice speed (2.4 words/s at 1x); the default stays 70-80 / 30s.
+    assert "70 to 80 words" in build_retention_script_prompt("Game")
+    assert "63 to 72 words" in build_retention_script_prompt("Game", speech_speed=1.0)
+    direct_prompt = build_retention_script_prompt("Game", hook_type="direct")
+    assert "Do NOT start with a formulaic opener" in direct_prompt
+    custom_prompt = build_retention_script_prompt("Game", hook_type="custom", opening_text="Trapster presents")
+    assert 'verbatim: "Trapster presents"' in custom_prompt
+
+    direct = {
+        "hook": {"text": "You weld leaks on a sinking sub while sharks circle.",
+                 "first_words": {"category": "CUSTOM", "text": ""},
+                 "first_punch": {"category": "ACTION", "text": "You weld leaks on a sinking sub"}},
+        "sentences": [{"id": "sentence_01", "text": "You weld leaks on a sinking sub while sharks circle.", "block": "HOOK"},
+                      {"id": "sentence_02", "text": "Wishlist it on Steam!", "block": "CTA"}],
+    }
+    is_valid, errors, warnings = validate_retention_script(direct, hook_type="direct")
+    assert is_valid and not errors and not warnings
+    repaired = parse_and_repair_retention_script(direct, hook_type="direct")
+    assert repaired.hook.first_words.category == "CUSTOM"
+
+    custom = parse_and_repair_retention_script(direct, hook_type="custom", opening_text="Trapster presents")
+    assert custom.clean_script_text.startswith("Trapster presents. You weld leaks")
+
+
 def test_hook_without_second_punch():
     sample_data = {
         "hook": {
@@ -305,6 +330,7 @@ if __name__ == "__main__":
     test_heuristic_fallback_from_plain_text()
     test_prompt_builder_includes_retention_rules()
     test_backwards_compatibility_legacy_script()
+    test_opening_modes_and_speech_speed_budget()
     test_hook_without_second_punch()
     test_markdown_wrapped_json_parsing()
     print("ALL RETENTION UNIT TESTS PASSED! [OK]")
