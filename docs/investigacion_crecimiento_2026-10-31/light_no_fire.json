@@ -1,0 +1,31 @@
+{
+  "slug": "light_no_fire",
+  "appid": 2719590,
+  "store_url": "https://store.steampowered.com/app/2719590/",
+  "research_date_madrid": "2026-10-31",
+  "retrieved_utc": "2026-10-31T18:44:45.685804+00:00",
+  "name": "Light No Fire",
+  "current_players": null,
+  "players_raw": null,
+  "errors": [
+    "players:HTTPError",
+    "reviews:JSONDecodeError"
+  ],
+  "release_date": {
+    "coming_soon": true,
+    "date": "To be announced"
+  },
+  "features": [
+    "Single-player",
+    "Multi-player",
+    "Co-op",
+    "Online Co-op",
+    "Family Sharing"
+  ],
+  "publisher": [
+    "Hello Games"
+  ],
+  "website": "http://lightnofire.com/",
+  "official_news": [],
+  "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+}

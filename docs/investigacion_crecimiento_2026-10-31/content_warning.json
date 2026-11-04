@@ -1,0 +1,61 @@
+{
+  "slug": "content_warning",
+  "appid": 2881650,
+  "store_url": "https://store.steampowered.com/app/2881650/",
+  "research_date_madrid": "2026-10-31",
+  "retrieved_utc": "2026-10-31T18:44:46.773358+00:00",
+  "name": "Content Warning",
+  "current_players": 964,
+  "players_raw": {
+    "response": {
+      "player_count": 964,
+      "result": 1
+    }
+  },
+  "errors": [
+    "reviews:JSONDecodeError"
+  ],
+  "release_date": {
+    "coming_soon": false,
+    "date": "Apr 1, 2024"
+  },
+  "features": [
+    "Multi-player",
+    "Co-op",
+    "Online Co-op",
+    "Cross-Platform Multiplayer",
+    "DualShock Controller Support",
+    "DualSense Controller Support",
+    "Partial Controller Support",
+    "Steam Cloud",
+    "Family Sharing"
+  ],
+  "publisher": [
+    "Evil Landfall?"
+  ],
+  "website": "http://landfall.se",
+  "official_news": [
+    {
+      "title": "Workshop temporarily disabled",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1846651706692572",
+      "date": 1792440530,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "Patch Notes 1.24.0",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1831432155567881",
+      "date": 1777550347,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "Patch Notes 1.23.0: Big big fixing update",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1830163047259489",
+      "date": 1776416463,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    }
+  ],
+  "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+}

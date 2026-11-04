@@ -1,0 +1,75 @@
+{
+  "slug": "factorio",
+  "appid": 427520,
+  "store_url": "https://store.steampowered.com/app/427520/",
+  "research_date_madrid": "2026-10-31",
+  "retrieved_utc": "2026-10-31T18:44:42.924546+00:00",
+  "name": "Factorio",
+  "current_players": 24748,
+  "players_raw": {
+    "response": {
+      "player_count": 24748,
+      "result": 1
+    }
+  },
+  "errors": [
+    "reviews:JSONDecodeError"
+  ],
+  "release_date": {
+    "coming_soon": false,
+    "date": "Aug 14, 2020"
+  },
+  "features": [
+    "Single-player",
+    "Multi-player",
+    "Co-op",
+    "Online Co-op",
+    "LAN Co-op",
+    "Cross-Platform Multiplayer",
+    "Steam Achievements",
+    "Adjustable Text Size",
+    "Camera Comfort",
+    "Custom Volume Controls",
+    "Adjustable Difficulty",
+    "Playable without Timed Input",
+    "DualShock Controller Support",
+    "DualShock Controller Support",
+    "DualSense Controller Support",
+    "DualSense Controller Support",
+    "Save Anytime",
+    "Subtitle Options",
+    "Partial Controller Support",
+    "Steam Cloud",
+    "Includes level editor",
+    "Remote Play on Tablet",
+    "Family Sharing"
+  ],
+  "publisher": [
+    "Wube Software LTD."
+  ],
+  "website": "https://www.factorio.com",
+  "official_news": [
+    {
+      "title": "Friday Facts #449 - 2.1 Stable",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847286114035936",
+      "date": 1792753249,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "Friday Facts #448 - Tuning platforms",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1846018067932950",
+      "date": 1791543889,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "Friday Facts #447 - Factorio that you can touch",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1844751498224164",
+      "date": 1790334180,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    }
+  ],
+  "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+}

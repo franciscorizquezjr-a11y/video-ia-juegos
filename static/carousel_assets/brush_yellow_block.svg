@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 160" preserveAspectRatio="none">
+  <!-- Brush Yellow Block (Large Highlighter / Acrylic Swash) -->
+  <defs>
+    <filter id="brushTurbulence" x="-5%" y="-5%" width="110%" height="110%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="3" result="noise" />
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="9" xChannelSelector="R" yChannelSelector="G" />
+    </filter>
+  </defs>
+  <path d="M 22,25 
+           C 75,18 160,28 250,22 
+           C 340,16 430,26 480,20
+           C 490,26 492,45 488,72
+           C 492,105 485,135 475,142
+           C 420,146 310,138 210,145
+           C 120,150 45,138 18,135
+           C 10,118 12,85 15,62
+           C 11,40 16,30 22,25 Z" 
+        fill="#FFBE1A" filter="url(#brushTurbulence)" />
+</svg>

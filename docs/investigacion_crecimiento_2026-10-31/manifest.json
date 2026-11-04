@@ -1,0 +1,138 @@
+[
+  {
+    "file": "atmosfar.json",
+    "sha256": "2e2160c55465333ef9da3632fd9b6ea9d067119a0b15e377c094f69e1841878b"
+  },
+  {
+    "file": "AUDITORIA_CATALOGO.json",
+    "sha256": "429d5afb76f6d699a1c5602d1b266f03a0c0a92f0ad19d2f96ef509ed1ce5d71"
+  },
+  {
+    "file": "cairn.json",
+    "sha256": "bb310a28464f4320bddda7966a914a02f73f9e6e6ddeebce033883a511e6f2e7"
+  },
+  {
+    "file": "candidate_visuals_0.jpg",
+    "sha256": "7bda7c4e9df6b9d9adf60d6944a5be1367a0e5dd13927a4b216aca941bcb04e5"
+  },
+  {
+    "file": "candidate_visuals_1.jpg",
+    "sha256": "59e9d8688094a87312692da76588407ebcbd625fe69fc7897342d44b5ca909db"
+  },
+  {
+    "file": "candidate_visuals_2.jpg",
+    "sha256": "8a5671215d26f22c26c3abb0f7b30afb04dc2c1200bd53380525d48ebbfad1df"
+  },
+  {
+    "file": "candidate_visuals_3.jpg",
+    "sha256": "596ffed8baf835642bab49b98ac13b78b2e06d09f9d87c54237473f9198a7b01"
+  },
+  {
+    "file": "content_warning.json",
+    "sha256": "a7d222a12ced2c21fdd04744d10df8a4191615b8769b0ac2f847514bd485033e"
+  },
+  {
+    "file": "CRITERIOS_GUION_Y_VOZ.json",
+    "sha256": "b1d8a102816b1337911f650cfaffafc58c3275d0ecfe53a31db19254d32ea0ac"
+  },
+  {
+    "file": "enshrouded.json",
+    "sha256": "0fc7d2763dc3f975c14f9a49438730f62735d311be55652b2ba215d590173c29"
+  },
+  {
+    "file": "escape_backrooms.json",
+    "sha256": "12b2d285eae473ef802192c51e975968ecc318451450545ca820890366559b99"
+  },
+  {
+    "file": "factorio.json",
+    "sha256": "bae07709bd9d43145152f6dda2ebf95eeffd69229edc08bf0c6a6ba805a02bc8"
+  },
+  {
+    "file": "feed_examples.json",
+    "sha256": "e7d3015489a711b408c217487bfd576a417721aba56ed20e8196ef34326895b9"
+  },
+  {
+    "file": "FUENTES_REVISADAS.json",
+    "sha256": "e45d9c84208baf1139bc4cd62a21dd1cd5e41eee96c6906ef5f8c14953e7630c"
+  },
+  {
+    "file": "helldivers2.json",
+    "sha256": "2b44d28aeba68320f020181ae27a0807079562fd280bf683bce8a5d255744ab3"
+  },
+  {
+    "file": "INVESTIGACION_Y_PLAN.md",
+    "sha256": "3a8eee522356593c911ddbb9fc4f63c49acfc7c84738e7f1a27e2a0561daf434"
+  },
+  {
+    "file": "lethal_company.json",
+    "sha256": "d37de6e68f43a378b9ec46b0cf19883141abcba40fcc0c91aebc5ef814e96779"
+  },
+  {
+    "file": "light_no_fire.json",
+    "sha256": "055d3a0d484aa1116645e63b7e72c1c4e3b52fa4d825428ad75c3af6aa5b5fdd"
+  },
+  {
+    "file": "moon_sweepers.json",
+    "sha256": "beaa5ed52344c083dd2e0ddd92e89d0a9eaf6b30398fea7fe2c23025c75bad60"
+  },
+  {
+    "file": "nomad_drive.json",
+    "sha256": "81dc8eaa5417d49d4a2e428cb628078abe45ca0d799fc1e5725ddc5d8d06b5e4"
+  },
+  {
+    "file": "no_mans_sky.json",
+    "sha256": "2e78c4c22cff18de2fe6bb8a132024fddc7fe314daffe9a4cc4d3cacdafe9651"
+  },
+  {
+    "file": "outlast_trials.json",
+    "sha256": "295caeba7d12a0a2f33227c3fb61c1e54cc3d99d1e39c6d1a7b58740c2dcabf0"
+  },
+  {
+    "file": "peak.json",
+    "sha256": "d2be10af51808c23d7adc1cbd7bce0b25913438ac406c06bd804454ecda96f28"
+  },
+  {
+    "file": "PRESELECCION_JUEGOS.json",
+    "sha256": "9d18a85da69d77f028d1fec4621731413704aed59baaca32ffab8682515f549d"
+  },
+  {
+    "file": "probably_stolen.json",
+    "sha256": "c7822670f11cadf68e4fe079f98f5dd532c149a809edd62cc0a7fc61b07b844e"
+  },
+  {
+    "file": "project_zomboid.json",
+    "sha256": "4bcae232496f3b4eb0c0ecd8c9c5187c14f39f598a05527d10be615bd9f02e81"
+  },
+  {
+    "file": "repo.json",
+    "sha256": "a28d1751f39d140f8edcb836c594c989e151a782fd6f1a379b50110da09bcfd6"
+  },
+  {
+    "file": "rv_there_yet.json",
+    "sha256": "599f24c593b4b487e1a1f9ced5691a71e3497b9439fbe3b4f93ea070cf093425"
+  },
+  {
+    "file": "scam_with_friends.json",
+    "sha256": "3ffd1138e4fb9c8384eda868edb9cf94052a76d0873dbaff6b91deb4bc4e3167"
+  },
+  {
+    "file": "slay_spire2.json",
+    "sha256": "aa9df4696c8bb86ac439eee6df1ab2288760577beb6ccdfe099e9605d5af9bbe"
+  },
+  {
+    "file": "snapshot.json",
+    "sha256": "7b3e5616f957891ca90eb20e3301c717ca4eacca5959274a5a4167bf2df3602c"
+  },
+  {
+    "file": "sons_forest.json",
+    "sha256": "8ed23b3ea4754df6751e961a274ef4fe6ab98c7a00d21324b43c04c512c6ea04"
+  },
+  {
+    "file": "timberborn.json",
+    "sha256": "fd5b1c50842311aeae15cdcf1ab9c5e64decac57b1dd7fc8b5083e55b5fdf681"
+  },
+  {
+    "file": "valheim.json",
+    "sha256": "18cfd93874b2f55a82bda767280c7933932807887476e34193357709079938e8"
+  }
+]

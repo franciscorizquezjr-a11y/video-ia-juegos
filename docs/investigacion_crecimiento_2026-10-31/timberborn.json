@@ -1,0 +1,67 @@
+{
+  "slug": "timberborn",
+  "appid": 1062090,
+  "store_url": "https://store.steampowered.com/app/1062090/",
+  "research_date_madrid": "2026-10-31",
+  "retrieved_utc": "2026-10-31T18:44:47.007734+00:00",
+  "name": "Timberborn",
+  "current_players": 5542,
+  "players_raw": {
+    "response": {
+      "player_count": 5542,
+      "result": 1
+    }
+  },
+  "errors": [
+    "reviews:JSONDecodeError"
+  ],
+  "release_date": {
+    "coming_soon": false,
+    "date": "Mar 12, 2026"
+  },
+  "features": [
+    "Single-player",
+    "Steam Achievements",
+    "Steam Workshop",
+    "Adjustable Text Size",
+    "Camera Comfort",
+    "Custom Volume Controls",
+    "Adjustable Difficulty",
+    "Mouse Only Option",
+    "#category_playable_at_your_own_pace",
+    "Playable without Timed Input",
+    "Save Anytime",
+    "Stereo Sound",
+    "Steam Cloud",
+    "Includes level editor",
+    "Family Sharing"
+  ],
+  "publisher": [
+    "Mechanistry"
+  ],
+  "website": "https://mechanistry.com/",
+  "official_news": [
+    {
+      "title": "Patch notes 2026-10-20 (main branch)",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1846651706694118",
+      "date": 1792482848,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "Patch notes 2026-10-13 (experimental)",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1846018067943195",
+      "date": 1791876189,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "Timberborn 1.1 Build-a-Map Contest is live",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1846018067929660",
+      "date": 1791465749,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    }
+  ],
+  "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+}

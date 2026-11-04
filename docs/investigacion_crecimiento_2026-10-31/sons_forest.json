@@ -1,0 +1,64 @@
+{
+  "slug": "sons_forest",
+  "appid": 1326470,
+  "store_url": "https://store.steampowered.com/app/1326470/",
+  "research_date_madrid": "2026-10-31",
+  "retrieved_utc": "2026-10-31T18:44:45.612916+00:00",
+  "name": "Sons Of The Forest",
+  "current_players": 20805,
+  "players_raw": {
+    "response": {
+      "player_count": 20805,
+      "result": 1
+    }
+  },
+  "errors": [
+    "reviews:JSONDecodeError"
+  ],
+  "release_date": {
+    "coming_soon": false,
+    "date": "Feb 22, 2024"
+  },
+  "features": [
+    "Single-player",
+    "Multi-player",
+    "Co-op",
+    "Online Co-op",
+    "Steam Achievements",
+    "Full controller support",
+    "DualShock Controller Support",
+    "DualShock Controller Support",
+    "DualSense Controller Support",
+    "DualSense Controller Support",
+    "Steam Cloud",
+    "Family Sharing"
+  ],
+  "publisher": [
+    "Newnight "
+  ],
+  "website": null,
+  "official_news": [
+    {
+      "title": "Unity security update",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1811772772517758",
+      "date": 1759517232,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "Hotfix",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1789039014504127",
+      "date": 1737481646,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "Hotfix",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1789039014476715",
+      "date": 1737409255,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    }
+  ],
+  "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+}

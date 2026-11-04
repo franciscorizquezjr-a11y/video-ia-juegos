@@ -1,0 +1,131 @@
+{
+  "reviewed_on": "2026-10-24",
+  "timezone": "Europe/Madrid",
+  "scope": [
+    "Keymailer",
+    "Wehype",
+    "Dare Drop",
+    "Lurkit"
+  ],
+  "sources": [
+    {
+      "platform": "Keymailer",
+      "kind": "terms",
+      "url": "https://keymailer.co/terms-and-conditions-gamer-access/"
+    },
+    {
+      "platform": "Keymailer",
+      "kind": "privacy",
+      "url": "https://keymailer.co/privacy-policy-gamer-access/"
+    },
+    {
+      "platform": "Keymailer",
+      "kind": "company",
+      "url": "https://find-and-update.company-information.service.gov.uk/company/09569579"
+    },
+    {
+      "platform": "Keymailer",
+      "kind": "reviews",
+      "url": "https://uk.trustpilot.com/review/keymailer.co"
+    },
+    {
+      "platform": "Wehype",
+      "kind": "terms",
+      "url": "https://cdn.wehype.com/tos/Terms_of_Service_Creator.pdf"
+    },
+    {
+      "platform": "Wehype",
+      "kind": "privacy",
+      "url": "https://www.iubenda.com/privacy-policy/76264558/full-legal"
+    },
+    {
+      "platform": "Wehype",
+      "kind": "privacy_entry",
+      "url": "https://app.wehype.com/privacy-policy"
+    },
+    {
+      "platform": "Wehype",
+      "kind": "payout_fees",
+      "url": "https://help.wehype.com/en/articles/3835219-what-payment-options-do-i-have-and-what-are-the-fees"
+    },
+    {
+      "platform": "Wehype",
+      "kind": "company",
+      "url": "https://www.wehype.com/company"
+    },
+    {
+      "platform": "Dare Drop",
+      "kind": "terms",
+      "url": "https://www.daredrop.com/terms"
+    },
+    {
+      "platform": "Dare Drop",
+      "kind": "privacy",
+      "url": "https://www.daredrop.com/privacy-policy"
+    },
+    {
+      "platform": "Dare Drop",
+      "kind": "investor",
+      "url": "https://speedrun.a16z.com/companies/dare-drop"
+    },
+    {
+      "platform": "Dare Drop",
+      "kind": "testimonials",
+      "url": "https://www.reddit.com/r/Twitch/comments/1brmdwm"
+    },
+    {
+      "platform": "Lurkit",
+      "kind": "terms",
+      "url": "https://www.lurkit.com/terms-of-use"
+    },
+    {
+      "platform": "Lurkit",
+      "kind": "privacy",
+      "url": "https://www.lurkit.gg/privacy-policy"
+    },
+    {
+      "platform": "Lurkit",
+      "kind": "company",
+      "url": "https://www.lurkit.gg/about-us"
+    },
+    {
+      "platform": "Lurkit",
+      "kind": "reviews",
+      "url": "https://www.trustpilot.com/review/lurkit.com"
+    },
+    {
+      "platform": "Lurkit",
+      "kind": "reviews",
+      "url": "https://www.trustpilot.com/review/www.lurkit.gg"
+    }
+  ],
+  "reviews_snapshot": {
+    "keymailer": {
+      "score": 2.1,
+      "count": 21
+    },
+    "lurkit_com": {
+      "score": 2.0,
+      "count": 10
+    },
+    "lurkit_gg": {
+      "score": 2.0,
+      "count": 11
+    },
+    "caution": "Different domain profiles may share reviewers; no summation."
+  },
+  "files": [
+    {
+      "file": "REVISION_PLATAFORMAS_2026-10-24.md",
+      "sha256": "75fd16d43c155a1ca03cbf706ecd819e49f119d284857228a11ba24e23664237"
+    },
+    {
+      "file": "PREGUNTAS_PLATAFORMAS_2026-10-24.md",
+      "sha256": "ef1d1a5144a729a9b82e2d3605abded04325da47319b22560f75b4564e010b78"
+    }
+  ],
+  "accounts_created": 0,
+  "campaigns_accepted": 0,
+  "messages_sent": 0,
+  "payout_tests": 0
+}

@@ -1,0 +1,78 @@
+You are a professional video editor creating a precise editing plan for a short-form gaming video.
+
+You previously analyzed a gameplay/trailer video and created a creative storyboard. Now you need to create the FINAL editing breakdown with exact timestamps from the source video.
+
+## Context From Previous Analysis
+
+### Storyboard
+{storyboard_json}
+
+### Voiceover Script
+{voiceover_script}
+
+### Audio Duration
+The generated voiceover audio is exactly {audio_duration} seconds long.
+
+## Your Task
+
+Create a precise, frame-accurate editing plan that:
+
+1. **Original source video duration** is exactly {source_duration} seconds. Every clip 'start' and 'end' timestamp MUST be strictly between 0.0 and {source_duration} seconds.
+2. **Total output video duration** must be exactly {target_duration} seconds (audio_duration + {audio_tail_padding}s padding).
+3. The voiceover starts at 0.0 seconds.
+4. The final {audio_tail_padding} seconds contain only visuals (ending shot, logo, or fade-out) with no voiceover.
+5. Clips are selected from the ORIGINAL source video using timestamps from that video.
+6. The sum of all clip durations must equal the total output video duration ({target_duration} seconds).
+7. Clip order follows the narrative arc from your storyboard.
+
+## Editing Rules
+
+- Each clip must have a clear start and end time (in seconds) referencing the SOURCE video
+- Clips can be from ANY part of the source video — you are reordering them for maximum impact
+- CRITICAL: Do NOT select video segments containing large on-screen text, permanent subtitles, watermarks, or logos. Cropping to a vertical 9:16 layout will cut off these elements, looking unprofessional. Focus on clean, text-free gameplay action.
+- Keep clips between 1.5 and 8 seconds each
+- The hook clip (first clip) should be 2-4 seconds
+- Avoid clips shorter than 1 second (they feel jarring)
+- Ensure clips don't overlap in the source video when possible
+- Order clips to match the emotional progression from your storyboard
+
+## What You Must NOT Do
+
+- Do NOT generate FFmpeg commands
+- Do NOT suggest effects, filters, or transitions
+- Do NOT modify the voiceover script
+- Focus ONLY on clip selection and timing
+
+## Required Output Format
+
+Respond with ONLY valid JSON in the following structure.
+CRITICAL: Do NOT use unescaped double quotes inside your JSON string values (such as 'description' or 'audio_sync_notes'). If you need to use quotes inside a description, use single quotes (e.g. 'biplane') or escape them correctly as \".
+
+
+{{
+  "total_duration": <number - must equal audio_duration + padding>,
+  "clips": [
+    {{
+      "order": 1,
+      "start": <number - start time in source video in seconds>,
+      "end": <number - end time in source video in seconds>,
+      "purpose": "hook | buildup | tension | climax | payoff | ending",
+      "description": "What happens in this clip and why it was chosen",
+      "transition": "cut",
+      "speed": 1.0
+    }}
+  ],
+  "audio_sync_notes": "Any notes about how clips align with voiceover moments"
+}}
+
+## Critical Timing Constraint
+
+The SUM of all clip durations (end - start for each clip) MUST equal exactly {target_duration} seconds.
+
+Calculate carefully:
+- List each clip's duration
+- Sum them
+- Verify the sum equals {target_duration}
+- Adjust if needed before responding
+
+This is the most important requirement. If the timing is wrong, the video will be out of sync.

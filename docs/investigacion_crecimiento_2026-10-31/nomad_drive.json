@@ -1,0 +1,71 @@
+{
+  "slug": "nomad_drive",
+  "appid": 2223980,
+  "store_url": "https://store.steampowered.com/app/2223980/",
+  "research_date_madrid": "2026-10-31",
+  "retrieved_utc": "2026-10-31T18:44:41.426386+00:00",
+  "name": "Nomad Drive",
+  "current_players": 4207,
+  "players_raw": {
+    "response": {
+      "player_count": 4207,
+      "result": 1
+    }
+  },
+  "errors": [
+    "reviews:JSONDecodeError"
+  ],
+  "release_date": {
+    "coming_soon": false,
+    "date": "Oct 27, 2026"
+  },
+  "features": [
+    "Single-player",
+    "Multi-player",
+    "Co-op",
+    "Online Co-op",
+    "Steam Achievements",
+    "Full controller support",
+    "Camera Comfort",
+    "Custom Volume Controls",
+    "Adjustable Difficulty",
+    "DualShock Controller Support",
+    "DualShock Controller Support",
+    "DualSense Controller Support",
+    "DualSense Controller Support",
+    "Save Anytime",
+    "Stereo Sound",
+    "Surround Sound",
+    "Steam Cloud",
+    "Stats",
+    "Family Sharing"
+  ],
+  "publisher": [
+    "Indie Devil"
+  ],
+  "website": "https://indiedevil.com",
+  "official_news": [
+    {
+      "title": "Road Ahead",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302238574",
+      "date": 1793366848,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "Release Announcement",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1846651706686887",
+      "date": 1792327050,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "World Stability Overhaul & Single Player Mode: Explore as Far as You Want",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1836506165561222",
+      "date": 1782776763,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    }
+  ],
+  "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+}

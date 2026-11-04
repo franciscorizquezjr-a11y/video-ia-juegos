@@ -1,0 +1,32 @@
+{
+  "catalog_entries": 494,
+  "distinct_game_name_strings_not_verified_game_count": 418,
+  "sources": {
+    "Team17": 26,
+    "Devolver Digital": 26,
+    "Hooded Horse": 16,
+    "GameTrailers (IGN)": 213,
+    "Indie Games Hub": 213
+  },
+  "metric_dates": {
+    "2026-10-31": 73,
+    "2026-10-24": 55,
+    "": 366
+  },
+  "name_corrections": [
+    {
+      "id": "N_1R-Q-CS68",
+      "before": "PURE ROGUE-JUTSU FLOW",
+      "after": "Tenjutsu",
+      "verification_url": "https://influencers.devolverdigital.com/tenjutsu"
+    },
+    {
+      "id": "2fvClsw3UZ0",
+      "before": "Don't dare to LOOK OUTSIDE on Nintendo Switch 1 & 2 and PlayStation 4 & 5",
+      "after": "Look Outside",
+      "verification_url": "https://influencers.devolverdigital.com/look-outside"
+    }
+  ],
+  "workflow_states_preserved": true,
+  "refresh_report": "E:\\proyecto_videos\\ia_video\\data\\catalog_refresh\\latest_report.json"
+}

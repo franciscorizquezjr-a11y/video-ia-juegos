@@ -1,0 +1,62 @@
+{
+  "slug": "outlast_trials",
+  "appid": 1304930,
+  "store_url": "https://store.steampowered.com/app/1304930/",
+  "research_date_madrid": "2026-10-31",
+  "retrieved_utc": "2026-10-31T18:44:44.188879+00:00",
+  "name": "The Outlast Trials",
+  "current_players": 17672,
+  "players_raw": {
+    "response": {
+      "player_count": 17672,
+      "result": 1
+    }
+  },
+  "errors": [
+    "reviews:JSONDecodeError"
+  ],
+  "release_date": {
+    "coming_soon": false,
+    "date": "Mar 5, 2024"
+  },
+  "features": [
+    "Single-player",
+    "Multi-player",
+    "Co-op",
+    "Online Co-op",
+    "Full controller support",
+    "DualShock Controller Support",
+    "DualShock Controller Support",
+    "DualSense Controller Support",
+    "DualSense Controller Support",
+    "Family Sharing"
+  ],
+  "publisher": [
+    "Red Barrels"
+  ],
+  "website": "https://redbarrelsgames.com/games/the-outlast-trials/",
+  "official_news": [
+    {
+      "title": "New Update | Geister Limited-Time Event, Community Event, MK-Challenges & More",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1846651706695405",
+      "date": 1792504829,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "Hotfix Patch Notes | Chemical Leak - Sept. 17",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1844115010492566",
+      "date": 1789660968,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "Hotfix Patch Notes | Chemical Leak - Sept. 11",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1843481262695372",
+      "date": 1789135289,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    }
+  ],
+  "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+}

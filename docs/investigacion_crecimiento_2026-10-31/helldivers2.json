@@ -1,0 +1,74 @@
+{
+  "slug": "helldivers2",
+  "appid": 553850,
+  "store_url": "https://store.steampowered.com/app/553850/",
+  "research_date_madrid": "2026-10-31",
+  "retrieved_utc": "2026-10-31T18:44:45.521435+00:00",
+  "name": "HELLDIVERS™ 2",
+  "current_players": 42999,
+  "players_raw": {
+    "response": {
+      "player_count": 42999,
+      "result": 1
+    }
+  },
+  "errors": [
+    "reviews:JSONDecodeError"
+  ],
+  "release_date": {
+    "coming_soon": false,
+    "date": "Feb 8, 2024"
+  },
+  "features": [
+    "Multi-player",
+    "Co-op",
+    "Online Co-op",
+    "Steam Achievements",
+    "In-App Purchases",
+    "Adjustable Text Size",
+    "Camera Comfort",
+    "Chat Speech-to-text",
+    "Chat Text-to-speech",
+    "Color Alternatives",
+    "Custom Volume Controls",
+    "Adjustable Difficulty",
+    "Narrated Game Menus",
+    "Playable without Timed Input",
+    "DualShock Controller Support",
+    "DualSense Controller Support",
+    "DualSense Controller Support",
+    "Stereo Sound",
+    "Subtitle Options",
+    "Surround Sound",
+    "Partial Controller Support",
+    "Family Sharing"
+  ],
+  "publisher": [
+    "PlayStation Publishing LLC"
+  ],
+  "website": "https://www.playstation.com/games/helldivers-2/pc/",
+  "official_news": [
+    {
+      "title": "Devoid of Liberty: 7.2.2",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302234123",
+      "date": 1793268006,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "Devoid of Liberty: 7.2.1",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847286114032347",
+      "date": 1792670404,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "Devoid of Liberty: 7.2.0",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1846651706694344",
+      "date": 1792486911,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    }
+  ],
+  "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+}

@@ -1,0 +1,42 @@
+{
+  "name": "Party Loot",
+  "status": "YouTube, Instagram y TikTok creados; confirmado por el usuario el 18/10/2026",
+  "language": "en",
+  "theme": "Juegos cooperativos, party games y multijugador para jugar con amigos",
+  "handle_proposal": "partylootgames",
+  "handle_availability": "YouTube e Instagram según confirmación del usuario; TikTok pendiente",
+  "alternatives": [
+    "playpartyloot",
+    "partylootgaming"
+  ],
+  "palette": {
+    "background": "#101522",
+    "mint": "#41E1C2",
+    "coral": "#FF8264",
+    "white": "#FFFFFF"
+  },
+  "bio": "Co-op gems. Multiplayer chaos. Your next game night starts here. 🎮",
+  "tagline": "Find your next game night.",
+  "accounts": [
+    {
+      "platform": "YouTube",
+      "status": "Creado; confirmado por usuario 2026-10-18",
+      "url": null,
+      "handle": "partylootgames"
+    },
+    {
+      "platform": "Instagram",
+      "status": "Creado; confirmado por usuario 2026-10-18",
+      "url": null,
+      "handle": "partylootgames"
+    },
+    {
+      "platform": "TikTok",
+      "status": "Creado; confirmado por el usuario 2026-10-18",
+      "url": null,
+      "handle": null
+    }
+  ],
+  "image_tool": "built-in image_gen",
+  "prompt": "Design one original social-media AVATAR LOGO for a gaming discovery channel named Party Loot, focused on cooperative games, party games and multiplayer games with friends. Create a crisp minimal flat graphic icon on a solid deep navy #101522 background, square canvas. Main symbol: TWO simplified game controller silhouettes cleverly interlocking like two links in a chain, conveying playing together and friendship. Controllers must be unmistakably gamepads with a clear tiny D-pad and two circular buttons each; simple chunky geometry, confident clean outlines, distinctive memorable silhouette. One controller bright mint/cyan #41E1C2, the other warm coral-orange #FF8264; small white accents only. Centered compact icon with generous circular-avatar-safe margin around every edge, all meaningful detail within the central 65 percent of the square. Sophisticated editorial gaming identity, friendly energetic and contemporary, high contrast, legible at 48 pixels. Flat vector-like bitmap rendering, precise smooth edges, no texture, no gradients, no lighting, no 3D, no shadows, no badges, no crown, no loot box, no coins, no existing gaming manufacturer marks. NO WORDS, NO LETTERS, no watermark, no tagline. Deliver just the single clean avatar icon, no brand board, mockup or variants."
+}

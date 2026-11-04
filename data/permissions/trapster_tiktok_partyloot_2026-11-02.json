@@ -1,0 +1,41 @@
+{
+  "reviewed_on": "2026-11-02",
+  "timezone": "Europe/Madrid",
+  "provider": "TikTok",
+  "app": "Trapster.gg",
+  "account_display_name": "Party Loot",
+  "brand": "PartyLoot",
+  "account_handle": null,
+  "connection_status": "connected as reported by user; not independently checked in authenticated dashboard",
+  "evidence": "OAuth permission text pasted by user; four permissions marked Required",
+  "permissions": [
+    {
+      "displayed": "Acceder a la información de tu perfil (avatar y nombre)",
+      "documented_scope_match": "user.info.basic"
+    },
+    {
+      "displayed": "Tener acceso a la información adicional de tu perfil, como la descripción corta, el enlace del perfil y el estado de verificación de la cuenta",
+      "documented_scope_match": "user.info.profile"
+    },
+    {
+      "displayed": "Tener acceso a las estadísticas de interacción con tu perfil, como el número de me gusta, seguidores, cuentas que se siguen y vídeos",
+      "documented_scope_match": "user.info.stats"
+    },
+    {
+      "displayed": "Ver tus vídeos públicos en TikTok",
+      "documented_scope_match": "video.list"
+    }
+  ],
+  "scope_mapping_status": "Matched against official user-facing scope descriptions; no access token or granted-scope response inspected",
+  "posting_permission_shown": false,
+  "draft_upload_permission_shown": false,
+  "direct_messages_permission_shown": false,
+  "oauth_grant_is_separate_from_campaign_acceptance": true,
+  "scope_reference": "https://developers.tiktok.com/docs/en/tiktok-api-scopes",
+  "trapster_terms_url": "https://www.trapster.gg/tos",
+  "trapster_terms_updated": "2026-10-09",
+  "trapster_privacy_url": "https://www.trapster.gg/privacy",
+  "trapster_privacy_updated": "2026-09-18",
+  "pao_pao_tiktok_campaign_eligibility": "not yet confirmed",
+  "previous_zero_view_issue": "unresolved; this is a user-requested one-off publication proposal, not a fix"
+}

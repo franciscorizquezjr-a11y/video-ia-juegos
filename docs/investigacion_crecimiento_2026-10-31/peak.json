@@ -1,0 +1,65 @@
+{
+  "slug": "peak",
+  "appid": 3527290,
+  "store_url": "https://store.steampowered.com/app/3527290/",
+  "research_date_madrid": "2026-10-31",
+  "retrieved_utc": "2026-10-31T18:44:39.913040+00:00",
+  "name": "PEAK",
+  "current_players": 17556,
+  "players_raw": {
+    "response": {
+      "player_count": 17556,
+      "result": 1
+    }
+  },
+  "errors": [
+    "reviews:JSONDecodeError"
+  ],
+  "release_date": {
+    "coming_soon": false,
+    "date": "Jun 16, 2025"
+  },
+  "features": [
+    "Single-player",
+    "Multi-player",
+    "Co-op",
+    "Online Co-op",
+    "Steam Achievements",
+    "Full controller support",
+    "Steam Trading Cards",
+    "DualShock Controller Support",
+    "DualShock Controller Support",
+    "DualSense Controller Support",
+    "DualSense Controller Support",
+    "Family Sharing"
+  ],
+  "publisher": [
+    "Aggro Crab",
+    "Evil Landfall?"
+  ],
+  "website": "http://peakpeakpeak.com",
+  "official_news": [
+    {
+      "title": "Patch Notes 3.0.1",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847286114037507",
+      "date": 1792779320,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "CROSSPLAY HAS ARRIVED TO PEAK",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847286114033058",
+      "date": 1792681253,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "Crossplay is coming to PEAK next week!",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1846651706678652",
+      "date": 1792083656,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    }
+  ],
+  "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+}

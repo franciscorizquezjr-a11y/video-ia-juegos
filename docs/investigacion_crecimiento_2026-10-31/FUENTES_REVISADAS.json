@@ -1,0 +1,431 @@
+[
+  {
+    "id": "yt_trends",
+    "name": "YouTube Studio · Tendencias",
+    "url": "https://support.google.com/youtube/answer/11962757?hl=en",
+    "brand_fit": [
+      "NextLoot",
+      "PartyLoot"
+    ],
+    "purpose": "Consultas, vídeos destacados de canales similares y huecos de Shorts; la disponibilidad depende de cuenta/país.",
+    "access_method": "authenticated_manual_or_user_export",
+    "footage_rights": "Discovery only; no rights to reuse other creators videos",
+    "reviewed_on": "2026-10-31",
+    "integration_state": "reviewed_manual",
+    "automatic_download_enabled": false
+  },
+  {
+    "id": "steam_players",
+    "name": "Steam · jugadores actuales",
+    "url": "https://partner.steamgames.com/doc/webapi/ISteamUserStats#GetNumberOfCurrentPlayers",
+    "brand_fit": [
+      "NextLoot",
+      "PartyLoot"
+    ],
+    "purpose": "Señal de uso actual, no crecimiento ni búsquedas de YouTube.",
+    "access_method": "documented_public_API",
+    "footage_rights": "Metadata only",
+    "reviewed_on": "2026-10-31",
+    "integration_state": "tested_23_apps_research_snapshot_only",
+    "automatic_download_enabled": false
+  },
+  {
+    "id": "steam_news",
+    "name": "Steam · anuncios oficiales",
+    "url": "https://partner.steamgames.com/doc/webapi/ISteamNews",
+    "brand_fit": [
+      "NextLoot",
+      "PartyLoot"
+    ],
+    "purpose": "Lanzamientos, actualizaciones y demos; feed oficial, no notas externas.",
+    "access_method": "documented_public_API",
+    "footage_rights": "Metadata only",
+    "reviewed_on": "2026-10-31",
+    "integration_state": "tested_23_apps_research_snapshot_only",
+    "automatic_download_enabled": false
+  },
+  {
+    "id": "steam_charts",
+    "name": "Steam · rankings",
+    "url": "https://store.steampowered.com/charts",
+    "brand_fit": [
+      "NextLoot",
+      "PartyLoot"
+    ],
+    "purpose": "Separar ingresos, jugadores y novedades; filtros por encaje.",
+    "access_method": "manual_public_web",
+    "footage_rights": "Discovery only",
+    "reviewed_on": "2026-10-31",
+    "integration_state": "reviewed_manual",
+    "automatic_download_enabled": false
+  },
+  {
+    "id": "steam_wishlist",
+    "name": "Steam · más deseados",
+    "url": "https://store.steampowered.com/search/?filter=popularwishlist",
+    "brand_fit": [
+      "NextLoot",
+      "PartyLoot"
+    ],
+    "purpose": "Interés en futuros lanzamientos; no implica juego disponible.",
+    "access_method": "manual_public_web",
+    "footage_rights": "Discovery only",
+    "reviewed_on": "2026-10-31",
+    "integration_state": "reviewed_manual",
+    "automatic_download_enabled": false
+  },
+  {
+    "id": "steam_nextfest",
+    "name": "Steam · Next Fest",
+    "url": "https://store.steampowered.com/sale/nextfest",
+    "brand_fit": [
+      "NextLoot",
+      "PartyLoot"
+    ],
+    "purpose": "Demos y eventos; confirmar fechas en cada edición.",
+    "access_method": "manual_public_web",
+    "footage_rights": "Per-game material and embargo review",
+    "reviewed_on": "2026-10-31",
+    "integration_state": "reviewed_manual",
+    "automatic_download_enabled": false
+  },
+  {
+    "id": "google_trends",
+    "name": "Google Trends · YouTube Search",
+    "url": "https://trends.google.com/trends/",
+    "brand_fit": [
+      "NextLoot",
+      "PartyLoot"
+    ],
+    "purpose": "Comparar temas de juegos en US, UK y ES; 7/30/90 días, escala relativa.",
+    "access_method": "manual_export",
+    "footage_rights": "Metadata only",
+    "reviewed_on": "2026-10-31",
+    "integration_state": "reviewed_manual",
+    "automatic_download_enabled": false
+  },
+  {
+    "id": "hooded",
+    "name": "Hooded Horse · press e influencers",
+    "url": "https://www.hoodedhorse.com/influencers",
+    "brand_fit": [
+      "NextLoot"
+    ],
+    "purpose": "Automatización, estrategia y construcción; kits descargables.",
+    "access_method": "existing_youtube_feed_plus_manual_press_kits",
+    "footage_rights": "Explicit monetized game-video permission, respect embargo and game-specific assets",
+    "reviewed_on": "2026-10-31",
+    "integration_state": "existing_feed_refreshed",
+    "automatic_download_enabled": false
+  },
+  {
+    "id": "devolver",
+    "name": "Devolver · recursos para creadores",
+    "url": "https://influencers.devolverdigital.com/",
+    "brand_fit": [
+      "NextLoot",
+      "PartyLoot"
+    ],
+    "purpose": "Acción, rarezas y multijugador; kits por juego.",
+    "access_method": "existing_youtube_feed_plus_manual_press_kits",
+    "footage_rights": "Publisher video monetization policy; check exact materials and soundtrack",
+    "reviewed_on": "2026-10-31",
+    "integration_state": "existing_feed_refreshed",
+    "automatic_download_enabled": false
+  },
+  {
+    "id": "team17",
+    "name": "Team17 · Press and Creator Hub",
+    "url": "https://www.team17.com/press-and-creator-hub",
+    "brand_fit": [
+      "NextLoot",
+      "PartyLoot"
+    ],
+    "purpose": "Cooperativos, party games y nuevas demos con recursos.",
+    "access_method": "existing_youtube_feed_plus_manual_press_kits",
+    "footage_rights": "Press-kit terms per game; no blanket unlimited trailer-reuse claim",
+    "reviewed_on": "2026-10-31",
+    "integration_state": "existing_feed_refreshed",
+    "automatic_download_enabled": false
+  },
+  {
+    "id": "tinybuild",
+    "name": "tinyBuild · creadores y política",
+    "url": "https://www.tinybuild.com/creator",
+    "brand_fit": [
+      "NextLoot",
+      "PartyLoot"
+    ],
+    "purpose": "Simuladores y juegos con premisa fuerte; admite solicitudes de distintos tamaños.",
+    "access_method": "manual_creator_portal",
+    "footage_rights": "Original contribution and copyright notice required by influencer policy",
+    "reviewed_on": "2026-10-31",
+    "integration_state": "reviewed_manual",
+    "automatic_download_enabled": false
+  },
+  {
+    "id": "rawfury",
+    "name": "Raw Fury · política y catálogo",
+    "url": "https://rawfury.com/lets-play/",
+    "brand_fit": [
+      "NextLoot",
+      "PartyLoot"
+    ],
+    "purpose": "Indies de mecánica, exploración, misterio y gestión.",
+    "access_method": "manual_catalog_and_press",
+    "footage_rights": "Allows monetized game commentary; product link requested, music rights separate",
+    "reviewed_on": "2026-10-31",
+    "integration_state": "reviewed_manual",
+    "automatic_download_enabled": false
+  },
+  {
+    "id": "futurefriends",
+    "name": "Future Friends · press kits",
+    "url": "https://press.futurefriendsgames.com/",
+    "brand_fit": [
+      "NextLoot",
+      "PartyLoot"
+    ],
+    "purpose": "Premisas visuales y cozy; comprobar cooperativo por título.",
+    "access_method": "manual_official_press_kits",
+    "footage_rights": "Public assets; per-kit terms still need review",
+    "reviewed_on": "2026-10-31",
+    "integration_state": "reviewed_manual",
+    "automatic_download_enabled": false
+  },
+  {
+    "id": "fireshine",
+    "name": "Fireshine · noticias y juegos",
+    "url": "https://fireshinegames.co.uk/",
+    "brand_fit": [
+      "NextLoot",
+      "PartyLoot"
+    ],
+    "purpose": "Supervivencia, crafting y cooperativos; novedades oficiales.",
+    "access_method": "manual_official_news",
+    "footage_rights": "No global reuse license confirmed in this research",
+    "reviewed_on": "2026-10-31",
+    "integration_state": "reviewed_manual",
+    "automatic_download_enabled": false
+  },
+  {
+    "id": "ghostship",
+    "name": "Ghost Ship Publishing · juegos y kits",
+    "url": "https://ghostship.dk/publishing/",
+    "brand_fit": [
+      "NextLoot",
+      "PartyLoot"
+    ],
+    "purpose": "Distinguir juegos solo de los cooperativos; kits enlazados por título.",
+    "access_method": "manual_official_press_kits",
+    "footage_rights": "Per-game terms and embargo review",
+    "reviewed_on": "2026-10-31",
+    "integration_state": "reviewed_manual",
+    "automatic_download_enabled": false
+  },
+  {
+    "id": "coffeestain",
+    "name": "Coffee Stain · catálogo y noticias",
+    "url": "https://coffeestain.com/",
+    "brand_fit": [
+      "NextLoot",
+      "PartyLoot"
+    ],
+    "purpose": "Construcción, física y cooperativo; cambios de juegos ya conocidos.",
+    "access_method": "manual_official_news",
+    "footage_rights": "Check developer/title permissions; not inferred across the whole group",
+    "reviewed_on": "2026-10-31",
+    "integration_state": "reviewed_manual",
+    "automatic_download_enabled": false
+  },
+  {
+    "id": "landfall",
+    "name": "Landfall · Content Warning FAQ",
+    "url": "https://landfall.se/content-warning-faq",
+    "brand_fit": [
+      "PartyLoot"
+    ],
+    "purpose": "Cooperativos físicos y juego social; estudiar cada lanzamiento.",
+    "access_method": "manual_official_game_pages",
+    "footage_rights": "Content Warning recording/monetization allowed in its FAQ; do not extrapolate PEAK fan-merch policy",
+    "reviewed_on": "2026-10-31",
+    "integration_state": "reviewed_manual",
+    "automatic_download_enabled": false
+  },
+  {
+    "id": "wholesome",
+    "name": "Wholesome Games · showcase y kits",
+    "url": "https://wholesomegames.com/",
+    "brand_fit": [
+      "NextLoot",
+      "PartyLoot"
+    ],
+    "purpose": "Cozy y mecánicas expresivas; incluye enlaces oficiales a material.",
+    "access_method": "manual_showcase_and_press",
+    "footage_rights": "Showcase discovery does not license the full broadcast",
+    "reviewed_on": "2026-10-31",
+    "integration_state": "reviewed_manual",
+    "automatic_download_enabled": false
+  },
+  {
+    "id": "daydevs",
+    "name": "Day of the Devs",
+    "url": "https://www.dayofthedevs.org/",
+    "brand_fit": [
+      "NextLoot",
+      "PartyLoot"
+    ],
+    "purpose": "Indies singulares y sorpresas visuales.",
+    "access_method": "manual_showcase",
+    "footage_rights": "Get assets from the actual developer; no broadcast reupload",
+    "reviewed_on": "2026-10-31",
+    "integration_state": "reviewed_manual",
+    "automatic_download_enabled": false
+  },
+  {
+    "id": "itch",
+    "name": "itch.io · destacados y devlogs",
+    "url": "https://itch.io/featured-games-feed",
+    "brand_fit": [
+      "NextLoot",
+      "PartyLoot"
+    ],
+    "purpose": "Descubrir prototipos con una acción que se entienda rápido.",
+    "access_method": "manual_public_feed",
+    "footage_rights": "Rights and source-quality review per developer/game",
+    "reviewed_on": "2026-10-31",
+    "integration_state": "reviewed_manual",
+    "automatic_download_enabled": false
+  },
+  {
+    "id": "steam250",
+    "name": "Steam 250 · Hidden Gems",
+    "url": "https://steam250.com/hidden_gems",
+    "brand_fit": [
+      "NextLoot",
+      "PartyLoot"
+    ],
+    "purpose": "Selección por valoración como complemento, no termómetro de viralidad.",
+    "access_method": "manual_public_web",
+    "footage_rights": "Discovery only; automated access not enabled",
+    "reviewed_on": "2026-10-31",
+    "integration_state": "reviewed_manual",
+    "automatic_download_enabled": false
+  },
+  {
+    "id": "steamdb",
+    "name": "SteamDB · consulta manual",
+    "url": "https://steamdb.info/faq/",
+    "brand_fit": [
+      "NextLoot",
+      "PartyLoot"
+    ],
+    "purpose": "Contraste puntual; su FAQ prohíbe scraping/crawling.",
+    "access_method": "manual_only_no_scraping",
+    "footage_rights": "Discovery only; obtain automation data directly from Steam",
+    "reviewed_on": "2026-10-31",
+    "integration_state": "reviewed_manual",
+    "automatic_download_enabled": false
+  },
+  {
+    "id": "tiktok_cc",
+    "name": "TikTok Creative Center",
+    "url": "https://ads.tiktok.com/creative/creativeCenter/trends",
+    "brand_fit": [
+      "NextLoot",
+      "PartyLoot"
+    ],
+    "purpose": "Lenguaje visual y tendencias externas; no diagnostica el cero de nuestras cuentas.",
+    "access_method": "manual_login_where_required",
+    "footage_rights": "Other creators audio/footage is not automatically licensed",
+    "reviewed_on": "2026-10-31",
+    "integration_state": "reviewed_manual",
+    "automatic_download_enabled": false
+  },
+  {
+    "id": "yt_reference_rce",
+    "name": "Real Civil Engineer · referencia editorial",
+    "url": "https://www.youtube.com/@RealCivilEngineerGaming",
+    "brand_fit": [
+      "NextLoot"
+    ],
+    "purpose": "Observar premisas, no copiar metraje. No se ha medido aquí su rendimiento reciente.",
+    "access_method": "manual_or_authorized_youtube_metadata",
+    "footage_rights": "Discovery/reference only",
+    "reviewed_on": "2026-10-31",
+    "integration_state": "reviewed_manual",
+    "automatic_download_enabled": false
+  },
+  {
+    "id": "yt_reference_splatter",
+    "name": "Splattercatgaming · referencia editorial",
+    "url": "https://www.youtube.com/@Splattercatgaming",
+    "brand_fit": [
+      "NextLoot"
+    ],
+    "purpose": "Detectar juegos, contrastar después la ficha y el titular.",
+    "access_method": "manual_or_authorized_youtube_metadata",
+    "footage_rights": "Discovery/reference only",
+    "reviewed_on": "2026-10-31",
+    "integration_state": "reviewed_manual",
+    "automatic_download_enabled": false
+  },
+  {
+    "id": "yt_reference_retro",
+    "name": "Retromation · referencia editorial",
+    "url": "https://www.youtube.com/@Retromation",
+    "brand_fit": [
+      "NextLoot"
+    ],
+    "purpose": "Roguelikes y mecánicas; sin ranking actual de sus vídeos en este informe.",
+    "access_method": "manual_or_authorized_youtube_metadata",
+    "footage_rights": "Discovery/reference only",
+    "reviewed_on": "2026-10-31",
+    "integration_state": "reviewed_manual",
+    "automatic_download_enabled": false
+  },
+  {
+    "id": "yt_reference_coop",
+    "name": "The Co-Op Bros · referencia editorial",
+    "url": "https://www.youtube.com/watch?v=ERMhLrWKQlw",
+    "brand_fit": [
+      "PartyLoot"
+    ],
+    "purpose": "Selección cooperativa como referencia, no señal actual de tendencia por ese vídeo antiguo.",
+    "access_method": "manual_or_authorized_youtube_metadata",
+    "footage_rights": "Discovery/reference only",
+    "reviewed_on": "2026-10-31",
+    "integration_state": "reviewed_manual",
+    "automatic_download_enabled": false
+  },
+  {
+    "id": "yt_metadata",
+    "name": "YouTube Data API / WebSub",
+    "url": "https://developers.google.com/youtube/data/guides/push_notifications",
+    "brand_fit": [
+      "NextLoot",
+      "PartyLoot"
+    ],
+    "purpose": "Ampliación futura de metadatos con identificadores oficiales y cuotas; no descarga de vídeos.",
+    "access_method": "API_or_documented_websub",
+    "footage_rights": "Metadata access does not grant audiovisual reuse",
+    "reviewed_on": "2026-10-31",
+    "integration_state": "implementation_recommendation_not_connected",
+    "automatic_download_enabled": false
+  },
+  {
+    "id": "gamediscover",
+    "name": "GameDiscoverCo · análisis",
+    "url": "https://newsletter.gamediscover.co/",
+    "brand_fit": [
+      "NextLoot",
+      "PartyLoot"
+    ],
+    "purpose": "Contexto de mercado cuando sea accesible; no sustituye señales del canal.",
+    "access_method": "manual_optional",
+    "footage_rights": "No paid subscription started; page body not readable in this session",
+    "reviewed_on": "2026-10-31",
+    "integration_state": "optional_access_not_validated",
+    "automatic_download_enabled": false
+  }
+]

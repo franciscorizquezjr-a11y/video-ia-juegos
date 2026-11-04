@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 110" preserveAspectRatio="none">
+  <!-- Brush Yellow Slanted (Horizontal Text Highlighter) -->
+  <defs>
+    <filter id="slantedTurb" x="-5%" y="-5%" width="110%" height="110%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.04" numOctaves="3" result="noise" />
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="7" xChannelSelector="R" yChannelSelector="G" />
+    </filter>
+  </defs>
+  <path d="M 18,18 
+           C 95,12 210,22 340,16 
+           C 450,11 540,19 585,15
+           C 592,25 590,52 584,82
+           C 580,95 565,98 550,96
+           C 420,102 260,94 140,100
+           C 65,103 25,95 12,88
+           C 6,70 10,45 18,18 Z" 
+        fill="#FFBE1A" filter="url(#slantedTurb)" />
+</svg>

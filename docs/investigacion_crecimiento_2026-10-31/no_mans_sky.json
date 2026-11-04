@@ -1,0 +1,85 @@
+{
+  "slug": "no_mans_sky",
+  "appid": 275850,
+  "store_url": "https://store.steampowered.com/app/275850/",
+  "research_date_madrid": "2026-10-31",
+  "retrieved_utc": "2026-10-31T18:44:43.122306+00:00",
+  "name": "No Man's Sky",
+  "current_players": 19804,
+  "players_raw": {
+    "response": {
+      "player_count": 19804,
+      "result": 1
+    }
+  },
+  "errors": [
+    "reviews:JSONDecodeError"
+  ],
+  "release_date": {
+    "coming_soon": false,
+    "date": "Aug 12, 2016"
+  },
+  "features": [
+    "Single-player",
+    "Multi-player",
+    "PvP",
+    "Online PvP",
+    "Co-op",
+    "Online Co-op",
+    "Cross-Platform Multiplayer",
+    "Steam Achievements",
+    "Full controller support",
+    "Tracked Controller Support",
+    "VR Supported",
+    "Steam Trading Cards",
+    "Adjustable Text Size",
+    "Camera Comfort",
+    "Chat Speech-to-text",
+    "Color Alternatives",
+    "Custom Volume Controls",
+    "Adjustable Difficulty",
+    "Playable without Timed Input",
+    "DualShock Controller Support",
+    "DualShock Controller Support",
+    "DualSense Controller Support",
+    "DualSense Controller Support",
+    "Save Anytime",
+    "Steam Input API Support",
+    "Stereo Sound",
+    "Subtitle Options",
+    "Surround Sound",
+    "Steam Cloud",
+    "Remote Play on Tablet",
+    "Remote Play on TV",
+    "HDR available",
+    "Family Sharing"
+  ],
+  "publisher": [
+    "Hello Games"
+  ],
+  "website": "https://www.nomanssky.com/",
+  "official_news": [
+    {
+      "title": "Introducing..No Man's Sky: FORSAKEN",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302231131",
+      "date": 1793196337,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "No Man's Sky coming to iPhone and iPad",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1846018067941137",
+      "date": 1791815261,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "\"Our Journey Continues\" 10th Anniversary Expedition",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1844115010491191",
+      "date": 1789631316,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    }
+  ],
+  "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+}

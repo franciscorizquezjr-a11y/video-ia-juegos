@@ -1,0 +1,1509 @@
+[
+  {
+    "slug": "repo",
+    "appid": 3241660,
+    "store_url": "https://store.steampowered.com/app/3241660/",
+    "research_date_madrid": "2026-10-31",
+    "retrieved_utc": "2026-10-31T18:44:38.606964+00:00",
+    "name": "R.E.P.O.",
+    "current_players": 66252,
+    "players_raw": {
+      "response": {
+        "player_count": 66252,
+        "result": 1
+      }
+    },
+    "errors": [
+      "reviews:JSONDecodeError"
+    ],
+    "release_date": {
+      "coming_soon": false,
+      "date": "Feb 26, 2025"
+    },
+    "features": [
+      "Single-player",
+      "Multi-player",
+      "Co-op",
+      "Online Co-op",
+      "Full controller support",
+      "Camera Comfort",
+      "Custom Volume Controls",
+      "Playable without Timed Input",
+      "DualShock Controller Support",
+      "DualShock Controller Support",
+      "DualSense Controller Support",
+      "DualSense Controller Support",
+      "Stereo Sound",
+      "Steam Cloud",
+      "Family Sharing"
+    ],
+    "publisher": [
+      "semiwork"
+    ],
+    "website": null,
+    "official_news": [
+      {
+        "title": "R.E.P.O. v0.5.0 - The Sunstone Update",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302234696",
+        "date": 1793279213,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "A NEW R.E.P.O. LEVEL?!",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1834602721190571",
+        "date": 1780663730,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "R.E.P.O. v0.4.4",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1833334318576798",
+        "date": 1779701699,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      }
+    ],
+    "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+  },
+  {
+    "slug": "probably_stolen",
+    "appid": 4348910,
+    "store_url": "https://store.steampowered.com/app/4348910/",
+    "research_date_madrid": "2026-10-31",
+    "retrieved_utc": "2026-10-31T18:44:38.605965+00:00",
+    "name": "Probably Stolen - Cyberpunk Shopkeeper Sim",
+    "current_players": 82601,
+    "players_raw": {
+      "response": {
+        "player_count": 82601,
+        "result": 1
+      }
+    },
+    "errors": [
+      "reviews:JSONDecodeError"
+    ],
+    "release_date": {
+      "coming_soon": false,
+      "date": "Oct 28, 2026"
+    },
+    "features": [
+      "Single-player",
+      "Steam Achievements",
+      "Adjustable Text Size",
+      "Custom Volume Controls",
+      "Mouse Only Option",
+      "#category_playable_at_your_own_pace",
+      "Playable without Timed Input",
+      "Stereo Sound",
+      "Steam Cloud",
+      "Family Sharing"
+    ],
+    "publisher": [
+      "tinyBuild"
+    ],
+    "website": null,
+    "official_news": [
+      {
+        "title": "Modding Security Update - 1.0.0.6",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302241521",
+        "date": 1793433679,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "Hotfix & Bell Hotkey Rebind - 1.0.0.5",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302240176",
+        "date": 1793388689,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "500,000 Shopkeepers have settled on the Lower Levels!",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302240084",
+        "date": 1793386790,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      }
+    ],
+    "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+  },
+  {
+    "slug": "moon_sweepers",
+    "appid": 5335510,
+    "store_url": "https://store.steampowered.com/app/5335510/",
+    "research_date_madrid": "2026-10-31",
+    "retrieved_utc": "2026-10-31T18:44:38.605965+00:00",
+    "name": "Moon Sweepers",
+    "current_players": 74642,
+    "players_raw": {
+      "response": {
+        "player_count": 74642,
+        "result": 1
+      }
+    },
+    "errors": [
+      "reviews:JSONDecodeError"
+    ],
+    "release_date": {
+      "coming_soon": false,
+      "date": "Oct 23, 2026"
+    },
+    "features": [
+      "Single-player",
+      "Multi-player",
+      "Co-op",
+      "Online Co-op",
+      "Steam Achievements",
+      "Full controller support",
+      "Custom Volume Controls",
+      "#category_playable_at_your_own_pace",
+      "Playable without Timed Input",
+      "DualShock Controller Support",
+      "DualShock Controller Support",
+      "DualSense Controller Support",
+      "DualSense Controller Support",
+      "Steam Input API Support",
+      "Stereo Sound",
+      "Steam Cloud",
+      "Family Sharing"
+    ],
+    "publisher": [
+      "DragDrop Games"
+    ],
+    "website": "https://discord.gg/5ATRkXkAAe",
+    "official_news": [
+      {
+        "title": "600,000",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302238715",
+        "date": 1793368843,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "Moon Sweepers 1.0.5 Patch",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302229973",
+        "date": 1793173271,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "Moon Sweepers 1.0.4 Patch",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847286114042960",
+        "date": 1792961246,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      }
+    ],
+    "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+  },
+  {
+    "slug": "peak",
+    "appid": 3527290,
+    "store_url": "https://store.steampowered.com/app/3527290/",
+    "research_date_madrid": "2026-10-31",
+    "retrieved_utc": "2026-10-31T18:44:39.913040+00:00",
+    "name": "PEAK",
+    "current_players": 17556,
+    "players_raw": {
+      "response": {
+        "player_count": 17556,
+        "result": 1
+      }
+    },
+    "errors": [
+      "reviews:JSONDecodeError"
+    ],
+    "release_date": {
+      "coming_soon": false,
+      "date": "Jun 16, 2025"
+    },
+    "features": [
+      "Single-player",
+      "Multi-player",
+      "Co-op",
+      "Online Co-op",
+      "Steam Achievements",
+      "Full controller support",
+      "Steam Trading Cards",
+      "DualShock Controller Support",
+      "DualShock Controller Support",
+      "DualSense Controller Support",
+      "DualSense Controller Support",
+      "Family Sharing"
+    ],
+    "publisher": [
+      "Aggro Crab",
+      "Evil Landfall?"
+    ],
+    "website": "http://peakpeakpeak.com",
+    "official_news": [
+      {
+        "title": "Patch Notes 3.0.1",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847286114037507",
+        "date": 1792779320,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "CROSSPLAY HAS ARRIVED TO PEAK",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847286114033058",
+        "date": 1792681253,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "Crossplay is coming to PEAK next week!",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1846651706678652",
+        "date": 1792083656,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      }
+    ],
+    "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+  },
+  {
+    "slug": "rv_there_yet",
+    "appid": 3949040,
+    "store_url": "https://store.steampowered.com/app/3949040/",
+    "research_date_madrid": "2026-10-31",
+    "retrieved_utc": "2026-10-31T18:44:40.000860+00:00",
+    "name": "RV There Yet?",
+    "current_players": 8039,
+    "players_raw": {
+      "response": {
+        "player_count": 8039,
+        "result": 1
+      }
+    },
+    "errors": [
+      "reviews:JSONDecodeError"
+    ],
+    "release_date": {
+      "coming_soon": false,
+      "date": "Oct 21, 2025"
+    },
+    "features": [
+      "Single-player",
+      "Multi-player",
+      "Co-op",
+      "Online Co-op",
+      "Full controller support",
+      "Steam Input API Support",
+      "Steam Cloud",
+      "Family Sharing"
+    ],
+    "publisher": [
+      "Nuggets Entertainment"
+    ],
+    "website": null,
+    "official_news": [
+      {
+        "title": "Bugfix Patch 1.4.1.21945",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302239209",
+        "date": 1793376352,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "Crossplay Patch 1.4.1 live",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302234906",
+        "date": 1793283062,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "Pre-order RV There Yet? Merch now! Cross-play coming this week!",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847286114046285",
+        "date": 1793039661,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      }
+    ],
+    "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+  },
+  {
+    "slug": "scam_with_friends",
+    "appid": 4954910,
+    "store_url": "https://store.steampowered.com/app/4954910/",
+    "research_date_madrid": "2026-10-31",
+    "retrieved_utc": "2026-10-31T18:44:40.505119+00:00",
+    "name": "Scam With Your Friends",
+    "current_players": 4668,
+    "players_raw": {
+      "response": {
+        "player_count": 4668,
+        "result": 1
+      }
+    },
+    "errors": [
+      "reviews:JSONDecodeError"
+    ],
+    "release_date": {
+      "coming_soon": false,
+      "date": "Oct 15, 2026"
+    },
+    "features": [
+      "Single-player",
+      "Multi-player",
+      "Co-op",
+      "Online Co-op",
+      "Steam Achievements",
+      "Full controller support",
+      "Steam Workshop",
+      "Custom Volume Controls",
+      "Adjustable Difficulty",
+      "DualShock Controller Support",
+      "DualShock Controller Support",
+      "DualSense Controller Support",
+      "DualSense Controller Support",
+      "Stereo Sound",
+      "Family Sharing"
+    ],
+    "publisher": [
+      "Jatater Worldwide"
+    ],
+    "website": "https://jataterworldwide.com/scam-with-your-friends/",
+    "official_news": [
+      {
+        "title": "Major Speech & Russian Improvements, Smoother Calls & Bug Fixes!",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302229652",
+        "date": 1793163145,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "Gladia Speech Recognition, Smarter Boss Reviews, Improved Localization & Office",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847286114043683",
+        "date": 1792989789,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "Update 0.1.90: Streamer Mode, Lobby Security & Lottery Rework",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847286114041407",
+        "date": 1792916041,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      }
+    ],
+    "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+  },
+  {
+    "slug": "nomad_drive",
+    "appid": 2223980,
+    "store_url": "https://store.steampowered.com/app/2223980/",
+    "research_date_madrid": "2026-10-31",
+    "retrieved_utc": "2026-10-31T18:44:41.426386+00:00",
+    "name": "Nomad Drive",
+    "current_players": 4207,
+    "players_raw": {
+      "response": {
+        "player_count": 4207,
+        "result": 1
+      }
+    },
+    "errors": [
+      "reviews:JSONDecodeError"
+    ],
+    "release_date": {
+      "coming_soon": false,
+      "date": "Oct 27, 2026"
+    },
+    "features": [
+      "Single-player",
+      "Multi-player",
+      "Co-op",
+      "Online Co-op",
+      "Steam Achievements",
+      "Full controller support",
+      "Camera Comfort",
+      "Custom Volume Controls",
+      "Adjustable Difficulty",
+      "DualShock Controller Support",
+      "DualShock Controller Support",
+      "DualSense Controller Support",
+      "DualSense Controller Support",
+      "Save Anytime",
+      "Stereo Sound",
+      "Surround Sound",
+      "Steam Cloud",
+      "Stats",
+      "Family Sharing"
+    ],
+    "publisher": [
+      "Indie Devil"
+    ],
+    "website": "https://indiedevil.com",
+    "official_news": [
+      {
+        "title": "Road Ahead",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302238574",
+        "date": 1793366848,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "Release Announcement",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1846651706686887",
+        "date": 1792327050,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "World Stability Overhaul & Single Player Mode: Explore as Far as You Want",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1836506165561222",
+        "date": 1782776763,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      }
+    ],
+    "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+  },
+  {
+    "slug": "atmosfar",
+    "appid": 1798230,
+    "store_url": "https://store.steampowered.com/app/1798230/",
+    "research_date_madrid": "2026-10-31",
+    "retrieved_utc": "2026-10-31T18:44:41.915379+00:00",
+    "name": "ATMOSFAR",
+    "current_players": 1890,
+    "players_raw": {
+      "response": {
+        "player_count": 1890,
+        "result": 1
+      }
+    },
+    "errors": [
+      "reviews:JSONDecodeError"
+    ],
+    "release_date": {
+      "coming_soon": false,
+      "date": "Oct 29, 2026"
+    },
+    "features": [
+      "Single-player",
+      "Multi-player",
+      "Co-op",
+      "Online Co-op",
+      "Full controller support",
+      "Steam Cloud",
+      "Family Sharing"
+    ],
+    "publisher": [
+      "SHUEISHA GAMES"
+    ],
+    "website": "https://www.atmosfar.game/",
+    "official_news": [
+      {
+        "title": "Minor update: ATMOSFAR EA 1.0-6",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302242171",
+        "date": 1793454340,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "ATMOSFAR EA 1.0-5 released",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302240173",
+        "date": 1793388608,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "ATMOSFAR EA 1.0-4 released and performance inquiries",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302236389",
+        "date": 1793307783,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      }
+    ],
+    "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+  },
+  {
+    "slug": "slay_spire2",
+    "appid": 2868840,
+    "store_url": "https://store.steampowered.com/app/2868840/",
+    "research_date_madrid": "2026-10-31",
+    "retrieved_utc": "2026-10-31T18:44:41.984128+00:00",
+    "name": "Slay the Spire 2",
+    "current_players": 54443,
+    "players_raw": {
+      "response": {
+        "player_count": 54443,
+        "result": 1
+      }
+    },
+    "errors": [
+      "reviews:JSONDecodeError"
+    ],
+    "release_date": {
+      "coming_soon": false,
+      "date": "Mar 5, 2026"
+    },
+    "features": [
+      "Single-player",
+      "Multi-player",
+      "Co-op",
+      "Online Co-op",
+      "Full controller support",
+      "Custom Volume Controls",
+      "Mouse Only Option",
+      "#category_playable_at_your_own_pace",
+      "Playable without Timed Input",
+      "DualSense Controller Support",
+      "Save Anytime",
+      "Steam Input API Support",
+      "Steam Cloud",
+      "Stats",
+      "Steam Leaderboards",
+      "Family Sharing"
+    ],
+    "publisher": [
+      "Mega Crit"
+    ],
+    "website": "https://megacrit.com",
+    "official_news": [
+      {
+        "title": "The Neowsletter - October 2026",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302236888",
+        "date": 1793323498,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "The Neowsletter - September 2026",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1844751498226173",
+        "date": 1790379341,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "The Neowsletter - August 2026",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1840944183781031",
+        "date": 1786751537,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      }
+    ],
+    "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+  },
+  {
+    "slug": "factorio",
+    "appid": 427520,
+    "store_url": "https://store.steampowered.com/app/427520/",
+    "research_date_madrid": "2026-10-31",
+    "retrieved_utc": "2026-10-31T18:44:42.924546+00:00",
+    "name": "Factorio",
+    "current_players": 24748,
+    "players_raw": {
+      "response": {
+        "player_count": 24748,
+        "result": 1
+      }
+    },
+    "errors": [
+      "reviews:JSONDecodeError"
+    ],
+    "release_date": {
+      "coming_soon": false,
+      "date": "Aug 14, 2020"
+    },
+    "features": [
+      "Single-player",
+      "Multi-player",
+      "Co-op",
+      "Online Co-op",
+      "LAN Co-op",
+      "Cross-Platform Multiplayer",
+      "Steam Achievements",
+      "Adjustable Text Size",
+      "Camera Comfort",
+      "Custom Volume Controls",
+      "Adjustable Difficulty",
+      "Playable without Timed Input",
+      "DualShock Controller Support",
+      "DualShock Controller Support",
+      "DualSense Controller Support",
+      "DualSense Controller Support",
+      "Save Anytime",
+      "Subtitle Options",
+      "Partial Controller Support",
+      "Steam Cloud",
+      "Includes level editor",
+      "Remote Play on Tablet",
+      "Family Sharing"
+    ],
+    "publisher": [
+      "Wube Software LTD."
+    ],
+    "website": "https://www.factorio.com",
+    "official_news": [
+      {
+        "title": "Friday Facts #449 - 2.1 Stable",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847286114035936",
+        "date": 1792753249,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "Friday Facts #448 - Tuning platforms",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1846018067932950",
+        "date": 1791543889,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "Friday Facts #447 - Factorio that you can touch",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1844751498224164",
+        "date": 1790334180,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      }
+    ],
+    "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+  },
+  {
+    "slug": "project_zomboid",
+    "appid": 108600,
+    "store_url": "https://store.steampowered.com/app/108600/",
+    "research_date_madrid": "2026-10-31",
+    "retrieved_utc": "2026-10-31T18:44:43.044181+00:00",
+    "name": "Project Zomboid",
+    "current_players": 56944,
+    "players_raw": {
+      "response": {
+        "player_count": 56944,
+        "result": 1
+      }
+    },
+    "errors": [
+      "reviews:JSONDecodeError"
+    ],
+    "release_date": {
+      "coming_soon": false,
+      "date": "Nov 8, 2013"
+    },
+    "features": [
+      "Single-player",
+      "Multi-player",
+      "PvP",
+      "Online PvP",
+      "Co-op",
+      "Online Co-op",
+      "Shared/Split Screen Co-op",
+      "Shared/Split Screen",
+      "Cross-Platform Multiplayer",
+      "Steam Trading Cards",
+      "Steam Workshop",
+      "Partial Controller Support",
+      "Remote Play Together",
+      "Family Sharing"
+    ],
+    "publisher": [
+      "The Indie Stone"
+    ],
+    "website": "https://www.projectzomboid.com",
+    "official_news": [
+      {
+        "title": "Moving on Up: 42.22 Pre-Release",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847286114049399",
+        "date": 1793115901,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "A Note on Java Mods and Modding",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847286114028340",
+        "date": 1792578061,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "Build 42.21 Stable Released",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1844751498231307",
+        "date": 1790597228,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      }
+    ],
+    "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+  },
+  {
+    "slug": "no_mans_sky",
+    "appid": 275850,
+    "store_url": "https://store.steampowered.com/app/275850/",
+    "research_date_madrid": "2026-10-31",
+    "retrieved_utc": "2026-10-31T18:44:43.122306+00:00",
+    "name": "No Man's Sky",
+    "current_players": 19804,
+    "players_raw": {
+      "response": {
+        "player_count": 19804,
+        "result": 1
+      }
+    },
+    "errors": [
+      "reviews:JSONDecodeError"
+    ],
+    "release_date": {
+      "coming_soon": false,
+      "date": "Aug 12, 2016"
+    },
+    "features": [
+      "Single-player",
+      "Multi-player",
+      "PvP",
+      "Online PvP",
+      "Co-op",
+      "Online Co-op",
+      "Cross-Platform Multiplayer",
+      "Steam Achievements",
+      "Full controller support",
+      "Tracked Controller Support",
+      "VR Supported",
+      "Steam Trading Cards",
+      "Adjustable Text Size",
+      "Camera Comfort",
+      "Chat Speech-to-text",
+      "Color Alternatives",
+      "Custom Volume Controls",
+      "Adjustable Difficulty",
+      "Playable without Timed Input",
+      "DualShock Controller Support",
+      "DualShock Controller Support",
+      "DualSense Controller Support",
+      "DualSense Controller Support",
+      "Save Anytime",
+      "Steam Input API Support",
+      "Stereo Sound",
+      "Subtitle Options",
+      "Surround Sound",
+      "Steam Cloud",
+      "Remote Play on Tablet",
+      "Remote Play on TV",
+      "HDR available",
+      "Family Sharing"
+    ],
+    "publisher": [
+      "Hello Games"
+    ],
+    "website": "https://www.nomanssky.com/",
+    "official_news": [
+      {
+        "title": "Introducing..No Man's Sky: FORSAKEN",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302231131",
+        "date": 1793196337,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "No Man's Sky coming to iPhone and iPad",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1846018067941137",
+        "date": 1791815261,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "\"Our Journey Continues\" 10th Anniversary Expedition",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1844115010491191",
+        "date": 1789631316,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      }
+    ],
+    "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+  },
+  {
+    "slug": "cairn",
+    "appid": 1588550,
+    "store_url": "https://store.steampowered.com/app/1588550/",
+    "research_date_madrid": "2026-10-31",
+    "retrieved_utc": "2026-10-31T18:44:44.038269+00:00",
+    "name": "Cairn",
+    "current_players": 1847,
+    "players_raw": {
+      "response": {
+        "player_count": 1847,
+        "result": 1
+      }
+    },
+    "errors": [
+      "reviews:JSONDecodeError"
+    ],
+    "release_date": {
+      "coming_soon": false,
+      "date": "Jan 29, 2026"
+    },
+    "features": [
+      "Single-player",
+      "Steam Achievements",
+      "Full controller support",
+      "Adjustable Difficulty",
+      "Gamepad Recommended",
+      "Playable without Timed Input",
+      "DualShock Controller Support",
+      "DualShock Controller Support",
+      "DualSense Controller Support",
+      "DualSense Controller Support",
+      "Save Anytime",
+      "Stereo Sound",
+      "Subtitle Options",
+      "Surround Sound",
+      "Steam Cloud",
+      "Family Sharing"
+    ],
+    "publisher": [
+      "The Game Bakers"
+    ],
+    "website": "https://thegamebakers.com/cairn",
+    "official_news": [
+      {
+        "title": "Join our screenshot contest",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302239833",
+        "date": 1793383155,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "Explore Kami freely",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302239427",
+        "date": 1793379074,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "On the Trail: Deep Water is out now!",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302235390",
+        "date": 1793289942,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      }
+    ],
+    "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+  },
+  {
+    "slug": "outlast_trials",
+    "appid": 1304930,
+    "store_url": "https://store.steampowered.com/app/1304930/",
+    "research_date_madrid": "2026-10-31",
+    "retrieved_utc": "2026-10-31T18:44:44.188879+00:00",
+    "name": "The Outlast Trials",
+    "current_players": 17672,
+    "players_raw": {
+      "response": {
+        "player_count": 17672,
+        "result": 1
+      }
+    },
+    "errors": [
+      "reviews:JSONDecodeError"
+    ],
+    "release_date": {
+      "coming_soon": false,
+      "date": "Mar 5, 2024"
+    },
+    "features": [
+      "Single-player",
+      "Multi-player",
+      "Co-op",
+      "Online Co-op",
+      "Full controller support",
+      "DualShock Controller Support",
+      "DualShock Controller Support",
+      "DualSense Controller Support",
+      "DualSense Controller Support",
+      "Family Sharing"
+    ],
+    "publisher": [
+      "Red Barrels"
+    ],
+    "website": "https://redbarrelsgames.com/games/the-outlast-trials/",
+    "official_news": [
+      {
+        "title": "New Update | Geister Limited-Time Event, Community Event, MK-Challenges & More",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1846651706695405",
+        "date": 1792504829,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "Hotfix Patch Notes | Chemical Leak - Sept. 17",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1844115010492566",
+        "date": 1789660968,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "Hotfix Patch Notes | Chemical Leak - Sept. 11",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1843481262695372",
+        "date": 1789135289,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      }
+    ],
+    "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+  },
+  {
+    "slug": "escape_backrooms",
+    "appid": 1943950,
+    "store_url": "https://store.steampowered.com/app/1943950/",
+    "research_date_madrid": "2026-10-31",
+    "retrieved_utc": "2026-10-31T18:44:44.485751+00:00",
+    "name": "Escape the Backrooms",
+    "current_players": 5941,
+    "players_raw": {
+      "response": {
+        "player_count": 5941,
+        "result": 1
+      }
+    },
+    "errors": [
+      "reviews:JSONDecodeError"
+    ],
+    "release_date": {
+      "coming_soon": false,
+      "date": "Oct 23, 2025"
+    },
+    "features": [
+      "Single-player",
+      "Multi-player",
+      "Co-op",
+      "Online Co-op",
+      "Steam Achievements",
+      "Camera Comfort",
+      "Custom Volume Controls",
+      "Adjustable Difficulty",
+      "Playable without Timed Input",
+      "Stereo Sound",
+      "Partial Controller Support",
+      "Steam Cloud",
+      "Family Sharing"
+    ],
+    "publisher": [
+      "Secret Mode"
+    ],
+    "website": null,
+    "official_news": [
+      {
+        "title": "The Lost & Found Cosmetics are now Available!",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302234538",
+        "date": 1793276120,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "Lost & Found Update ",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302234498",
+        "date": 1793275220,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "Escape From Playtime x Escape The Backrooms Bundle",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847286114029486",
+        "date": 1792599400,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      }
+    ],
+    "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+  },
+  {
+    "slug": "helldivers2",
+    "appid": 553850,
+    "store_url": "https://store.steampowered.com/app/553850/",
+    "research_date_madrid": "2026-10-31",
+    "retrieved_utc": "2026-10-31T18:44:45.521435+00:00",
+    "name": "HELLDIVERS™ 2",
+    "current_players": 42999,
+    "players_raw": {
+      "response": {
+        "player_count": 42999,
+        "result": 1
+      }
+    },
+    "errors": [
+      "reviews:JSONDecodeError"
+    ],
+    "release_date": {
+      "coming_soon": false,
+      "date": "Feb 8, 2024"
+    },
+    "features": [
+      "Multi-player",
+      "Co-op",
+      "Online Co-op",
+      "Steam Achievements",
+      "In-App Purchases",
+      "Adjustable Text Size",
+      "Camera Comfort",
+      "Chat Speech-to-text",
+      "Chat Text-to-speech",
+      "Color Alternatives",
+      "Custom Volume Controls",
+      "Adjustable Difficulty",
+      "Narrated Game Menus",
+      "Playable without Timed Input",
+      "DualShock Controller Support",
+      "DualSense Controller Support",
+      "DualSense Controller Support",
+      "Stereo Sound",
+      "Subtitle Options",
+      "Surround Sound",
+      "Partial Controller Support",
+      "Family Sharing"
+    ],
+    "publisher": [
+      "PlayStation Publishing LLC"
+    ],
+    "website": "https://www.playstation.com/games/helldivers-2/pc/",
+    "official_news": [
+      {
+        "title": "Devoid of Liberty: 7.2.2",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302234123",
+        "date": 1793268006,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "Devoid of Liberty: 7.2.1",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847286114032347",
+        "date": 1792670404,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "Devoid of Liberty: 7.2.0",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1846651706694344",
+        "date": 1792486911,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      }
+    ],
+    "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+  },
+  {
+    "slug": "sons_forest",
+    "appid": 1326470,
+    "store_url": "https://store.steampowered.com/app/1326470/",
+    "research_date_madrid": "2026-10-31",
+    "retrieved_utc": "2026-10-31T18:44:45.612916+00:00",
+    "name": "Sons Of The Forest",
+    "current_players": 20805,
+    "players_raw": {
+      "response": {
+        "player_count": 20805,
+        "result": 1
+      }
+    },
+    "errors": [
+      "reviews:JSONDecodeError"
+    ],
+    "release_date": {
+      "coming_soon": false,
+      "date": "Feb 22, 2024"
+    },
+    "features": [
+      "Single-player",
+      "Multi-player",
+      "Co-op",
+      "Online Co-op",
+      "Steam Achievements",
+      "Full controller support",
+      "DualShock Controller Support",
+      "DualShock Controller Support",
+      "DualSense Controller Support",
+      "DualSense Controller Support",
+      "Steam Cloud",
+      "Family Sharing"
+    ],
+    "publisher": [
+      "Newnight "
+    ],
+    "website": null,
+    "official_news": [
+      {
+        "title": "Unity security update",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1811772772517758",
+        "date": 1759517232,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "Hotfix",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1789039014504127",
+        "date": 1737481646,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "Hotfix",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1789039014476715",
+        "date": 1737409255,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      }
+    ],
+    "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+  },
+  {
+    "slug": "light_no_fire",
+    "appid": 2719590,
+    "store_url": "https://store.steampowered.com/app/2719590/",
+    "research_date_madrid": "2026-10-31",
+    "retrieved_utc": "2026-10-31T18:44:45.685804+00:00",
+    "name": "Light No Fire",
+    "current_players": null,
+    "players_raw": null,
+    "errors": [
+      "players:HTTPError",
+      "reviews:JSONDecodeError"
+    ],
+    "release_date": {
+      "coming_soon": true,
+      "date": "To be announced"
+    },
+    "features": [
+      "Single-player",
+      "Multi-player",
+      "Co-op",
+      "Online Co-op",
+      "Family Sharing"
+    ],
+    "publisher": [
+      "Hello Games"
+    ],
+    "website": "http://lightnofire.com/",
+    "official_news": [],
+    "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+  },
+  {
+    "slug": "content_warning",
+    "appid": 2881650,
+    "store_url": "https://store.steampowered.com/app/2881650/",
+    "research_date_madrid": "2026-10-31",
+    "retrieved_utc": "2026-10-31T18:44:46.773358+00:00",
+    "name": "Content Warning",
+    "current_players": 964,
+    "players_raw": {
+      "response": {
+        "player_count": 964,
+        "result": 1
+      }
+    },
+    "errors": [
+      "reviews:JSONDecodeError"
+    ],
+    "release_date": {
+      "coming_soon": false,
+      "date": "Apr 1, 2024"
+    },
+    "features": [
+      "Multi-player",
+      "Co-op",
+      "Online Co-op",
+      "Cross-Platform Multiplayer",
+      "DualShock Controller Support",
+      "DualSense Controller Support",
+      "Partial Controller Support",
+      "Steam Cloud",
+      "Family Sharing"
+    ],
+    "publisher": [
+      "Evil Landfall?"
+    ],
+    "website": "http://landfall.se",
+    "official_news": [
+      {
+        "title": "Workshop temporarily disabled",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1846651706692572",
+        "date": 1792440530,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "Patch Notes 1.24.0",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1831432155567881",
+        "date": 1777550347,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "Patch Notes 1.23.0: Big big fixing update",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1830163047259489",
+        "date": 1776416463,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      }
+    ],
+    "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+  },
+  {
+    "slug": "lethal_company",
+    "appid": 1966720,
+    "store_url": "https://store.steampowered.com/app/1966720/",
+    "research_date_madrid": "2026-10-31",
+    "retrieved_utc": "2026-10-31T18:44:46.804612+00:00",
+    "name": "Lethal Company",
+    "current_players": 4501,
+    "players_raw": {
+      "response": {
+        "player_count": 4501,
+        "result": 1
+      }
+    },
+    "errors": [
+      "reviews:JSONDecodeError"
+    ],
+    "release_date": {
+      "coming_soon": false,
+      "date": "Oct 23, 2023"
+    },
+    "features": [
+      "Single-player",
+      "Multi-player",
+      "Co-op",
+      "Online Co-op",
+      "Custom Volume Controls",
+      "Stereo Sound",
+      "Partial Controller Support",
+      "Family Sharing"
+    ],
+    "publisher": [
+      "Zeekerss"
+    ],
+    "website": null,
+    "official_news": [
+      {
+        "title": "Version 80 - The Blooming Update",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1828894815563326",
+        "date": 1775377631,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "Version 80 Beta!",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1828441623109104",
+        "date": 1774850381,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "Handy Patch V73",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1811772772540321",
+        "date": 1759578012,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      }
+    ],
+    "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+  },
+  {
+    "slug": "timberborn",
+    "appid": 1062090,
+    "store_url": "https://store.steampowered.com/app/1062090/",
+    "research_date_madrid": "2026-10-31",
+    "retrieved_utc": "2026-10-31T18:44:47.007734+00:00",
+    "name": "Timberborn",
+    "current_players": 5542,
+    "players_raw": {
+      "response": {
+        "player_count": 5542,
+        "result": 1
+      }
+    },
+    "errors": [
+      "reviews:JSONDecodeError"
+    ],
+    "release_date": {
+      "coming_soon": false,
+      "date": "Mar 12, 2026"
+    },
+    "features": [
+      "Single-player",
+      "Steam Achievements",
+      "Steam Workshop",
+      "Adjustable Text Size",
+      "Camera Comfort",
+      "Custom Volume Controls",
+      "Adjustable Difficulty",
+      "Mouse Only Option",
+      "#category_playable_at_your_own_pace",
+      "Playable without Timed Input",
+      "Save Anytime",
+      "Stereo Sound",
+      "Steam Cloud",
+      "Includes level editor",
+      "Family Sharing"
+    ],
+    "publisher": [
+      "Mechanistry"
+    ],
+    "website": "https://mechanistry.com/",
+    "official_news": [
+      {
+        "title": "Patch notes 2026-10-20 (main branch)",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1846651706694118",
+        "date": 1792482848,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "Patch notes 2026-10-13 (experimental)",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1846018067943195",
+        "date": 1791876189,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "Timberborn 1.1 Build-a-Map Contest is live",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1846018067929660",
+        "date": 1791465749,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      }
+    ],
+    "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+  },
+  {
+    "slug": "valheim",
+    "appid": 892970,
+    "store_url": "https://store.steampowered.com/app/892970/",
+    "research_date_madrid": "2026-10-31",
+    "retrieved_utc": "2026-10-31T18:44:48.017020+00:00",
+    "name": "Valheim",
+    "current_players": 87454,
+    "players_raw": {
+      "response": {
+        "player_count": 87454,
+        "result": 1
+      }
+    },
+    "errors": [
+      "reviews:JSONDecodeError"
+    ],
+    "release_date": {
+      "coming_soon": false,
+      "date": "Sep 9, 2026"
+    },
+    "features": [
+      "Single-player",
+      "Multi-player",
+      "Co-op",
+      "Online Co-op",
+      "Steam Achievements",
+      "Full controller support",
+      "Camera Comfort",
+      "Custom Volume Controls",
+      "Adjustable Difficulty",
+      "DualShock Controller Support",
+      "DualShock Controller Support",
+      "DualSense Controller Support",
+      "DualSense Controller Support",
+      "Save Anytime",
+      "Stereo Sound",
+      "Steam Cloud",
+      "Stats",
+      "Remote Play on Tablet",
+      "Family Sharing"
+    ],
+    "publisher": [
+      "Coffee Stain Publishing"
+    ],
+    "website": "http://www.valheim.com",
+    "official_news": [
+      {
+        "title": "Patch 1.0.21",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302230913",
+        "date": 1793193085,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "Patch 1.0.20",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1846651706676865",
+        "date": 1792054697,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "Patch 1.0.17",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1845383656396226",
+        "date": 1791288710,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      }
+    ],
+    "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+  },
+  {
+    "slug": "enshrouded",
+    "appid": 1203620,
+    "store_url": "https://store.steampowered.com/app/1203620/",
+    "research_date_madrid": "2026-10-31",
+    "retrieved_utc": "2026-10-31T18:44:48.017020+00:00",
+    "name": "Enshrouded",
+    "current_players": 84744,
+    "players_raw": {
+      "response": {
+        "player_count": 84744,
+        "result": 1
+      }
+    },
+    "errors": [
+      "reviews:JSONDecodeError"
+    ],
+    "release_date": {
+      "coming_soon": false,
+      "date": "Oct 15, 2026"
+    },
+    "features": [
+      "Single-player",
+      "Multi-player",
+      "Co-op",
+      "Online Co-op",
+      "Steam Achievements",
+      "Full controller support",
+      "Adjustable Text Size",
+      "Camera Comfort",
+      "Color Alternatives",
+      "Custom Volume Controls",
+      "Adjustable Difficulty",
+      "DualShock Controller Support",
+      "DualShock Controller Support",
+      "DualSense Controller Support",
+      "DualSense Controller Support",
+      "Stereo Sound",
+      "Steam Cloud",
+      "Family Sharing"
+    ],
+    "publisher": [
+      "Keen Games GmbH"
+    ],
+    "website": "https://www.enshrouded.com",
+    "official_news": [
+      {
+        "title": "Enshrouded is Steam Deck verified!",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847286114036918",
+        "date": 1792769833,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "Changelog for Hotfix 1.0.0.3",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847286114028297",
+        "date": 1792577239,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      },
+      {
+        "title": "Changelog for Hotfix 1.0.0.2",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1846651706681725",
+        "date": 1792161547,
+        "feedname": "steam_community_announcements",
+        "feedlabel": "Community Announcements"
+      }
+    ],
+    "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+  }
+]

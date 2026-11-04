@@ -1,0 +1,67 @@
+{
+  "slug": "repo",
+  "appid": 3241660,
+  "store_url": "https://store.steampowered.com/app/3241660/",
+  "research_date_madrid": "2026-10-31",
+  "retrieved_utc": "2026-10-31T18:44:38.606964+00:00",
+  "name": "R.E.P.O.",
+  "current_players": 66252,
+  "players_raw": {
+    "response": {
+      "player_count": 66252,
+      "result": 1
+    }
+  },
+  "errors": [
+    "reviews:JSONDecodeError"
+  ],
+  "release_date": {
+    "coming_soon": false,
+    "date": "Feb 26, 2025"
+  },
+  "features": [
+    "Single-player",
+    "Multi-player",
+    "Co-op",
+    "Online Co-op",
+    "Full controller support",
+    "Camera Comfort",
+    "Custom Volume Controls",
+    "Playable without Timed Input",
+    "DualShock Controller Support",
+    "DualShock Controller Support",
+    "DualSense Controller Support",
+    "DualSense Controller Support",
+    "Stereo Sound",
+    "Steam Cloud",
+    "Family Sharing"
+  ],
+  "publisher": [
+    "semiwork"
+  ],
+  "website": null,
+  "official_news": [
+    {
+      "title": "R.E.P.O. v0.5.0 - The Sunstone Update",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302234696",
+      "date": 1793279213,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "A NEW R.E.P.O. LEVEL?!",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1834602721190571",
+      "date": 1780663730,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "R.E.P.O. v0.4.4",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1833334318576798",
+      "date": 1779701699,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    }
+  ],
+  "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+}

@@ -1,0 +1,60 @@
+{
+  "slug": "lethal_company",
+  "appid": 1966720,
+  "store_url": "https://store.steampowered.com/app/1966720/",
+  "research_date_madrid": "2026-10-31",
+  "retrieved_utc": "2026-10-31T18:44:46.804612+00:00",
+  "name": "Lethal Company",
+  "current_players": 4501,
+  "players_raw": {
+    "response": {
+      "player_count": 4501,
+      "result": 1
+    }
+  },
+  "errors": [
+    "reviews:JSONDecodeError"
+  ],
+  "release_date": {
+    "coming_soon": false,
+    "date": "Oct 23, 2023"
+  },
+  "features": [
+    "Single-player",
+    "Multi-player",
+    "Co-op",
+    "Online Co-op",
+    "Custom Volume Controls",
+    "Stereo Sound",
+    "Partial Controller Support",
+    "Family Sharing"
+  ],
+  "publisher": [
+    "Zeekerss"
+  ],
+  "website": null,
+  "official_news": [
+    {
+      "title": "Version 80 - The Blooming Update",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1828894815563326",
+      "date": 1775377631,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "Version 80 Beta!",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1828441623109104",
+      "date": 1774850381,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "Handy Patch V73",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1811772772540321",
+      "date": 1759578012,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    }
+  ],
+  "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+}

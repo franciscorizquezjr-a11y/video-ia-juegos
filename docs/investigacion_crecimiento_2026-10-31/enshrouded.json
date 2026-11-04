@@ -1,0 +1,70 @@
+{
+  "slug": "enshrouded",
+  "appid": 1203620,
+  "store_url": "https://store.steampowered.com/app/1203620/",
+  "research_date_madrid": "2026-10-31",
+  "retrieved_utc": "2026-10-31T18:44:48.017020+00:00",
+  "name": "Enshrouded",
+  "current_players": 84744,
+  "players_raw": {
+    "response": {
+      "player_count": 84744,
+      "result": 1
+    }
+  },
+  "errors": [
+    "reviews:JSONDecodeError"
+  ],
+  "release_date": {
+    "coming_soon": false,
+    "date": "Oct 15, 2026"
+  },
+  "features": [
+    "Single-player",
+    "Multi-player",
+    "Co-op",
+    "Online Co-op",
+    "Steam Achievements",
+    "Full controller support",
+    "Adjustable Text Size",
+    "Camera Comfort",
+    "Color Alternatives",
+    "Custom Volume Controls",
+    "Adjustable Difficulty",
+    "DualShock Controller Support",
+    "DualShock Controller Support",
+    "DualSense Controller Support",
+    "DualSense Controller Support",
+    "Stereo Sound",
+    "Steam Cloud",
+    "Family Sharing"
+  ],
+  "publisher": [
+    "Keen Games GmbH"
+  ],
+  "website": "https://www.enshrouded.com",
+  "official_news": [
+    {
+      "title": "Enshrouded is Steam Deck verified!",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847286114036918",
+      "date": 1792769833,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "Changelog for Hotfix 1.0.0.3",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847286114028297",
+      "date": 1792577239,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "Changelog for Hotfix 1.0.0.2",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1846651706681725",
+      "date": 1792161547,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    }
+  ],
+  "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+}

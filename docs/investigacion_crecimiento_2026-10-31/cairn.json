@@ -1,0 +1,68 @@
+{
+  "slug": "cairn",
+  "appid": 1588550,
+  "store_url": "https://store.steampowered.com/app/1588550/",
+  "research_date_madrid": "2026-10-31",
+  "retrieved_utc": "2026-10-31T18:44:44.038269+00:00",
+  "name": "Cairn",
+  "current_players": 1847,
+  "players_raw": {
+    "response": {
+      "player_count": 1847,
+      "result": 1
+    }
+  },
+  "errors": [
+    "reviews:JSONDecodeError"
+  ],
+  "release_date": {
+    "coming_soon": false,
+    "date": "Jan 29, 2026"
+  },
+  "features": [
+    "Single-player",
+    "Steam Achievements",
+    "Full controller support",
+    "Adjustable Difficulty",
+    "Gamepad Recommended",
+    "Playable without Timed Input",
+    "DualShock Controller Support",
+    "DualShock Controller Support",
+    "DualSense Controller Support",
+    "DualSense Controller Support",
+    "Save Anytime",
+    "Stereo Sound",
+    "Subtitle Options",
+    "Surround Sound",
+    "Steam Cloud",
+    "Family Sharing"
+  ],
+  "publisher": [
+    "The Game Bakers"
+  ],
+  "website": "https://thegamebakers.com/cairn",
+  "official_news": [
+    {
+      "title": "Join our screenshot contest",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302239833",
+      "date": 1793383155,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "Explore Kami freely",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302239427",
+      "date": 1793379074,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "On the Trail: Deep Water is out now!",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302235390",
+      "date": 1793289942,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    }
+  ],
+  "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+}

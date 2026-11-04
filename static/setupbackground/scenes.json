@@ -1,0 +1,131 @@
+[
+  {
+    "id": "room",
+    "label": "Habitación con monitor",
+    "background_video": "/static/setupbackground/nextloot_clean_setup_20261017.mp4",
+    "native_width": 720,
+    "native_height": 1280,
+    "corners": {
+      "tl": {
+        "x": 43.613177470775774,
+        "y": 471.57894736842104
+      },
+      "tr": {
+        "x": 677.1519659936239,
+        "y": 471.57894736842104
+      },
+      "br": {
+        "x": 677.1519659936239,
+        "y": 779.3301435406698
+      },
+      "bl": {
+        "x": 43.613177470775774,
+        "y": 779.3301435406698
+      }
+    }
+  },
+  {
+    "id": "arcade",
+    "label": "Recreativa",
+    "background_video": "/static/setupbackground/nextloot_arcade_clean_20261017.mp4",
+    "background_image": "/static/setupbackground/nextloot_arcade_clean_20261017.png",
+    "native_width": 720,
+    "native_height": 1280,
+    "corners": {
+      "tl": {
+        "x": 46.673751328374074,
+        "y": 514.4497607655502
+      },
+      "tr": {
+        "x": 677.1519659936239,
+        "y": 514.4497607655502
+      },
+      "br": {
+        "x": 691.6896918172157,
+        "y": 889.5693779904307
+      },
+      "bl": {
+        "x": 26.780021253985122,
+        "y": 889.5693779904307
+      }
+    }
+  },
+  {
+    "id": "pocket",
+    "label": "Portátil retro",
+    "background_video": "/static/setupbackground/nextloot_pocket_clean_20261017.mp4",
+    "background_image": "/static/setupbackground/nextloot_pocket_clean_20261017.png",
+    "native_width": 720,
+    "native_height": 1280,
+    "corners": {
+      "tl": {
+        "x": 42.08289054197662,
+        "y": 565.7416267942584
+      },
+      "tr": {
+        "x": 665.6748140276302,
+        "y": 565.7416267942584
+      },
+      "br": {
+        "x": 682.5079702444208,
+        "y": 911.0047846889952
+      },
+      "bl": {
+        "x": 32.90116896918172,
+        "y": 911.0047846889952
+      }
+    }
+  },
+  {
+    "id": "console",
+    "label": "Salón de consola",
+    "background_video": "/static/setupbackground/nextloot_console_clean_v2_20261017.mp4",
+    "background_image": "/static/setupbackground/nextloot_console_clean_v2_20261017.png",
+    "native_width": 720,
+    "native_height": 1280,
+    "corners": {
+      "tl": {
+        "x": 35.23404255319149,
+        "y": 424.11483253588517
+      },
+      "tr": {
+        "x": 686.2978723404256,
+        "y": 424.11483253588517
+      },
+      "br": {
+        "x": 686.2978723404256,
+        "y": 756.3636363636364
+      },
+      "bl": {
+        "x": 35.23404255319149,
+        "y": 756.3636363636364
+      }
+    }
+  },
+  {
+    "id": "partyloot_coop",
+    "label": "Party Loot · salón cooperativo",
+    "background_video": "/static/setupbackground/partyloot_coop_lounge_20261018.mp4",
+    "background_image": "/static/setupbackground/partyloot_coop_lounge_20261018.png",
+    "native_width": 720,
+    "native_height": 1280,
+    "corners": {
+      "tl": {
+        "x": 35.23404255319149,
+        "y": 424.11483253588517
+      },
+      "tr": {
+        "x": 686.2978723404256,
+        "y": 424.11483253588517
+      },
+      "br": {
+        "x": 686.2978723404256,
+        "y": 756.3636363636364
+      },
+      "bl": {
+        "x": 35.23404255319149,
+        "y": 756.3636363636364
+      }
+    }
+  }
+]

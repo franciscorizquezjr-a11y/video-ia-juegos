@@ -1,0 +1,60 @@
+{
+  "slug": "rv_there_yet",
+  "appid": 3949040,
+  "store_url": "https://store.steampowered.com/app/3949040/",
+  "research_date_madrid": "2026-10-31",
+  "retrieved_utc": "2026-10-31T18:44:40.000860+00:00",
+  "name": "RV There Yet?",
+  "current_players": 8039,
+  "players_raw": {
+    "response": {
+      "player_count": 8039,
+      "result": 1
+    }
+  },
+  "errors": [
+    "reviews:JSONDecodeError"
+  ],
+  "release_date": {
+    "coming_soon": false,
+    "date": "Oct 21, 2025"
+  },
+  "features": [
+    "Single-player",
+    "Multi-player",
+    "Co-op",
+    "Online Co-op",
+    "Full controller support",
+    "Steam Input API Support",
+    "Steam Cloud",
+    "Family Sharing"
+  ],
+  "publisher": [
+    "Nuggets Entertainment"
+  ],
+  "website": null,
+  "official_news": [
+    {
+      "title": "Bugfix Patch 1.4.1.21945",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302239209",
+      "date": 1793376352,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "Crossplay Patch 1.4.1 live",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302234906",
+      "date": 1793283062,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "Pre-order RV There Yet? Merch now! Cross-play coming this week!",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847286114046285",
+      "date": 1793039661,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    }
+  ],
+  "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+}

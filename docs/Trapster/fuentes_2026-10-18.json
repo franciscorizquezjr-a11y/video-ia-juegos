@@ -1,0 +1,35 @@
+{
+  "review_date": "2026-10-18",
+  "timezone": "Europe/Madrid",
+  "summary": "revision_2026-10-18.md",
+  "sources": [
+    {
+      "url": "https://www.trapster.gg/offer",
+      "last_updated_displayed": "2026-02-23",
+      "http_status": 200,
+      "html_sha256": "591368f4f1dca9921dab9e38c016863656e989b14802bab657af84d6ec8f7d18",
+      "bytes": 69060
+    },
+    {
+      "url": "https://www.trapster.gg/tos",
+      "last_updated_displayed": "2026-10-09",
+      "http_status": 200,
+      "html_sha256": "41d2170665f8cad16f225fe24bf0ef03b930013e66e57c7d1e253d93427c49ad",
+      "bytes": 138021
+    },
+    {
+      "url": "https://www.trapster.gg/privacy",
+      "last_updated_displayed": "2026-09-18",
+      "http_status": 200,
+      "html_sha256": "51f041f6134884e50b17c3d6349e2127a5a153d8c17e7d45e9d28f89c56082e7",
+      "bytes": 53005
+    }
+  ],
+  "full_html_saved": false,
+  "unresolved": [
+    "offer_vs_tos_content_license",
+    "offer_vs_tos_change_notice",
+    "decorative_ai_background_permission",
+    "crossposting_languages_scope_per_campaign"
+  ]
+}

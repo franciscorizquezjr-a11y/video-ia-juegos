@@ -1,0 +1,31 @@
+# =============================================================================
+# AI Video Producer Pro — Complete Dependencies
+# =============================================================================
+
+# High-Performance Local Web Server & API
+fastapi>=0.110.0
+uvicorn[standard]>=0.28.0
+python-multipart>=0.0.9
+pydantic>=2.6.0
+requests>=2.31.0
+httpx>=0.27.0
+
+# Video Download & Image Generation
+yt-dlp>=2024.3.10
+Pillow>=10.0.0
+rembg[cpu]>=2.0.60
+numpy>=1.26.0
+opencv-python>=4.8.0
+scenedetect>=0.6.4
+torch>=2.2.0
+torchvision>=0.17.0
+ben2 @ git+https://github.com/PramaLLC/BEN2.git
+
+# AI Models & Audio Generation
+groq>=0.9.0
+google-genai>=0.1.0
+elevenlabs>=1.0.0
+python-dotenv>=1.1.0
+
+# Optional Legacy UI
+streamlit>=1.32.0

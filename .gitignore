@@ -1,0 +1,131 @@
+# ===========================
+# Python
+# ===========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# ===========================
+# IDE / Editor
+# ===========================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ===========================
+# Environment & Secrets
+# ===========================
+.env
+
+# ===========================
+# Project runtime directories
+# ===========================
+input/
+output/
+temp/
+scratch/
+logs/
+
+# ===========================
+# Local user media & footage
+# ===========================
+GamesFootage/
+PromosFootage/
+ViralScripts/
+
+# ===========================
+# Local user databases & state (schedules, games, calendar, breakdowns)
+# ===========================
+data/*.json
+data/*.bak
+data/breakdowns/
+!data/.gitkeep
+
+# ===========================
+# OS generated files
+# ===========================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ===========================
+# Testing / Coverage
+# ===========================
+.pytest_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# Private account credentials
+nextloot_account_private.md
+
+# Local history, generated operational reports and Windows shortcuts
+archive/
+data/maintenance/
+*.lnk
+
+# Local API usage ledger and SQLite journals
+data/api_usage.sqlite3*
+
+
+# Claves y configuración privada (NUNCA a GitHub)
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+secrets*
+credentials*.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# Node
+node_modules/
+
+# Vídeo, audio e imágenes generadas (pesan mucho; GitHub no acepta archivos de más de 100 MB)
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.webm
+*.wav
+*.mp3
+output/
+outputs/
+renders/
+tmp/
+temp/
+cache/
+
+# Modelos de IA descargados
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.onnx
+
+# Sistema y editores
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/

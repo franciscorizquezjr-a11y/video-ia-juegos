@@ -1,0 +1,66 @@
+{
+  "slug": "project_zomboid",
+  "appid": 108600,
+  "store_url": "https://store.steampowered.com/app/108600/",
+  "research_date_madrid": "2026-10-31",
+  "retrieved_utc": "2026-10-31T18:44:43.044181+00:00",
+  "name": "Project Zomboid",
+  "current_players": 56944,
+  "players_raw": {
+    "response": {
+      "player_count": 56944,
+      "result": 1
+    }
+  },
+  "errors": [
+    "reviews:JSONDecodeError"
+  ],
+  "release_date": {
+    "coming_soon": false,
+    "date": "Nov 8, 2013"
+  },
+  "features": [
+    "Single-player",
+    "Multi-player",
+    "PvP",
+    "Online PvP",
+    "Co-op",
+    "Online Co-op",
+    "Shared/Split Screen Co-op",
+    "Shared/Split Screen",
+    "Cross-Platform Multiplayer",
+    "Steam Trading Cards",
+    "Steam Workshop",
+    "Partial Controller Support",
+    "Remote Play Together",
+    "Family Sharing"
+  ],
+  "publisher": [
+    "The Indie Stone"
+  ],
+  "website": "https://www.projectzomboid.com",
+  "official_news": [
+    {
+      "title": "Moving on Up: 42.22 Pre-Release",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847286114049399",
+      "date": 1793115901,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "A Note on Java Mods and Modding",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847286114028340",
+      "date": 1792578061,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "Build 42.21 Stable Released",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1844751498231307",
+      "date": 1790597228,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    }
+  ],
+  "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+}

@@ -1,0 +1,55 @@
+{
+  "started_at": "2026-10-24T10:03:44.466366+00:00",
+  "before_count": 366,
+  "sources": [
+    {
+      "name": "Indie Games Hub",
+      "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCt8CJiye87FMbEwt0npPMuQ",
+      "new": 15,
+      "updated": 0,
+      "feed_title": "Indie Games Hub",
+      "returned_entries": 15,
+      "status": "ok"
+    },
+    {
+      "name": "GameTrailers (IGN)",
+      "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCJx5KP-pCUmL9eZUv-mIcNw",
+      "new": 15,
+      "updated": 0,
+      "feed_title": "GameTrailers",
+      "returned_entries": 15,
+      "status": "ok"
+    },
+    {
+      "name": "Hooded Horse",
+      "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCOchKaC3FN2G-odtv4DiVlA",
+      "new": 15,
+      "updated": 0,
+      "feed_title": "Hooded Horse",
+      "returned_entries": 15,
+      "status": "ok"
+    },
+    {
+      "name": "Devolver Digital",
+      "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCSc6s-ZJXKlSQr51dsox34g",
+      "new": 15,
+      "updated": 0,
+      "feed_title": "DevolverDigital",
+      "returned_entries": 15,
+      "status": "ok"
+    },
+    {
+      "name": "Team17",
+      "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UC-pYdpQSasQvmocEDWZUotQ",
+      "new": 15,
+      "updated": 0,
+      "feed_title": "Team17",
+      "returned_entries": 15,
+      "status": "ok"
+    }
+  ],
+  "coverage": "Latest entries exposed by each public RSS; not a historical backfill or complete YouTube index.",
+  "after_count": 441,
+  "new_count": 75,
+  "finished_at": "2026-10-24T10:03:45.485401+00:00"
+}

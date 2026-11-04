@@ -1,0 +1,447 @@
+[
+  {
+    "game_slug": "probably_stolen",
+    "appid": 4348910,
+    "kind": "players",
+    "observed_at_utc": "2026-11-02T15:07:06.487954+00:00",
+    "url": "https://api.steampowered.com/ISteamUserStats/GetNumberOfCurrentPlayers/v1/?appid=4348910",
+    "http_status": 200,
+    "data": {
+      "response": {
+        "player_count": 153055,
+        "result": 1
+      }
+    }
+  },
+  {
+    "game_slug": "repo",
+    "appid": 3241660,
+    "kind": "players",
+    "observed_at_utc": "2026-11-02T15:07:06.487954+00:00",
+    "url": "https://api.steampowered.com/ISteamUserStats/GetNumberOfCurrentPlayers/v1/?appid=3241660",
+    "http_status": 200,
+    "data": {
+      "response": {
+        "player_count": 54401,
+        "result": 1
+      }
+    }
+  },
+  {
+    "game_slug": "repo",
+    "appid": 3241660,
+    "kind": "news",
+    "observed_at_utc": "2026-11-02T15:07:06.684795+00:00",
+    "url": "https://api.steampowered.com/ISteamNews/GetNewsForApp/v2/?appid=3241660&count=4&maxlength=1000&feeds=steam_community_announcements",
+    "http_status": 200,
+    "data": {
+      "appnews": {
+        "appid": 3241660,
+        "newsitems": [
+          {
+            "gid": "1847920302234696",
+            "title": "R.E.P.O. v0.5.0 - The Sunstone Update",
+            "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302234696",
+            "is_external_url": true,
+            "author": "semiwork",
+            "contents": "Hey hey semibots! Our fourth major update is now live, The Sunstone Update! Hope you guys have fun!! ❤️ NEW CHANGES BALANCING FIXES NEW A whole new map, Sunstone Valley Resort! New Enemy - Pony! Gamepad support! Localization Added - 21 languages! Cosmetics - Added 10 new cosmetics! Main Menu - Added new buttons in the lower right to view the latest news and visit our Discord or YouTube channel! Headman Manor - 5 new rooms! Swiftbroom Academy - 4 new rooms! Museum of Human Art - 4 new rooms! McJannek Station - 5 new rooms! New item - Human Gun! New item - Human Adventure Cable! New item - Recharge Orb! Shop - Added a mirror next to the Cosmetic Machine so you can gaze upon your beauty! Shopkeeper - You can now hold up items to them for a chance at a discount... or having the item destroyed! Map - Now shows a shopping list of what's currently at the extraction point while in the shop! Expressions - Added an expression wheel with previews and mouse/gamepad support! Grab Lead - Added adjus...",
+            "feedlabel": "Community Announcements",
+            "date": 1793279213,
+            "feedname": "steam_community_announcements",
+            "feed_type": 1,
+            "appid": 3241660,
+            "tags": [
+              "mod_reviewed",
+              "ModAct_1847323374_1793280467_0",
+              "mod_require_rereview"
+            ]
+          },
+          {
+            "gid": "1834602721190571",
+            "title": "A NEW R.E.P.O. LEVEL?!",
+            "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1834602721190571",
+            "is_external_url": true,
+            "author": "Axel",
+            "contents": "Hey hey semibots! WOHO! We’re alive and we have some exciting stuff to tell you! Check out the Devlog here: If you prefer reading, here are the key takeaways: NEXT UPDATE The main focus of the next update will be a brand new level. TUMBLE CLIMB In the most recent Cosmetic update, we boosted the Tumble Climb upgrade quite a lot and it seems like people have missed out on it! It drains much less stamina and is in general way better. Give it a try! DEVLOGS As we’re both working on the next update AND getting closer to the 1.0 Full Release of R.E.P.O., we’ll need all hands on deck to keep up - this means that devlogs will be less frequent, but fret not; As soon as we have something exciting to showcase, we’ll showcase it! That’s it for now! Have a lovely weekend! Bye bye! /semiwork",
+            "feedlabel": "Community Announcements",
+            "date": 1780663730,
+            "feedname": "steam_community_announcements",
+            "feed_type": 1,
+            "appid": 3241660
+          },
+          {
+            "gid": "1833334318576798",
+            "title": "R.E.P.O. v0.4.4",
+            "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1833334318576798",
+            "is_external_url": true,
+            "author": "Axel",
+            "contents": "Hey hey semibots! Here is yet another small update with some fixes and balancing! CHANGES BALANCING FIXES CHANGES Item Melee Weapons - Handling now properly scales with strength and should feel firmer and better at higher strength. Item Vehicle - Smaller grab area for the button to reduce accidental activation when trying to move the vehicle. BALANCING Player Revive - Added 1 second of invincibility after revive to prevent instant deaths. Cosmetic Boxes - Slightly increased the general spawn chance for boxes, as well as the chance for Ultra Rare boxes. Item Staffs - All staffs now have 6 battery pips. Item Zero Gravity Staff - Improved zero gravity by making it more controllable and last longer for non-enemy objects. Players can now fly around when using it on themselves. Item Roll Staff - Improved by making all rolling objects target enemies, except players. Players now get the same effect as the Roll Drone, allowing them to roll around while steering their trajectory with the camera....",
+            "feedlabel": "Community Announcements",
+            "date": 1779701699,
+            "feedname": "steam_community_announcements",
+            "feed_type": 1,
+            "appid": 3241660,
+            "tags": [
+              "patchnotes"
+            ]
+          },
+          {
+            "gid": "1832700592792065",
+            "title": "R.E.P.O. v0.4.3",
+            "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1832700592792065",
+            "is_external_url": true,
+            "author": "Axel",
+            "contents": "Hey hey semibots! Here is yet another small update with some fixes and balancing! CHANGES BALANCING FIXES CHANGES Shopkeeper - When disabled, ruckus tracking is now capped so they won’t wake up too angry. Item Staffs - Smaller objects now get less particles. Item Zero Gravity Staff - Improved the effect for lifting physics objects. Item Sledge Hammer - Now unequips from inventory pre-rotated into its swing-ready pose. Item Upgrades - Disabled generic impact smoke. Battery UI - Now hides when the map is active. Charging Station - Tweaked colliders to prevent gaps where items could get stuck. BALANCING Item Roll Staff - Enemies now have different effect durations based on difficulty, previously 5-5.5s for all. Level 1: 8-10s, Level 2: 6-7.25s, Level 3: 4-4.5s. Item Zero Gravity Staff - Enemies now have different effect durations based on difficulty, previously 7.5-8s for all. Level 1: 12-15s, Level 2: 9-11s, Level 3: 6-7s. Item Melee Weapons - Much faster response when unequipped out of ...",
+            "feedlabel": "Community Announcements",
+            "date": 1778853006,
+            "feedname": "steam_community_announcements",
+            "feed_type": 1,
+            "appid": 3241660,
+            "tags": [
+              "patchnotes"
+            ]
+          }
+        ],
+        "count": 54
+      }
+    }
+  },
+  {
+    "game_slug": "probably_stolen",
+    "appid": 4348910,
+    "kind": "news",
+    "observed_at_utc": "2026-11-02T15:07:06.487954+00:00",
+    "url": "https://api.steampowered.com/ISteamNews/GetNewsForApp/v2/?appid=4348910&count=4&maxlength=1000&feeds=steam_community_announcements",
+    "http_status": 200,
+    "data": {
+      "appnews": {
+        "appid": 4348910,
+        "newsitems": [
+          {
+            "gid": "1847920302241521",
+            "title": "Modding Security Update - 1.0.0.6",
+            "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302241521",
+            "is_external_url": true,
+            "author": "questinggoosestudio",
+            "contents": "New Feature Security update for the modding system. Changes Added a \"Menu / Back\" key binding in Options: a second key that does everything Esc does. Note: This update makes changes to the modding system to improve security. Some mods may break and will need to be updated by their authors.",
+            "feedlabel": "Community Announcements",
+            "date": 1793433679,
+            "feedname": "steam_community_announcements",
+            "feed_type": 1,
+            "appid": 4348910,
+            "tags": [
+              "patchnotes",
+              "workshop"
+            ]
+          },
+          {
+            "gid": "1847920302240176",
+            "title": "Hotfix & Bell Hotkey Rebind - 1.0.0.5",
+            "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302240176",
+            "is_external_url": true,
+            "author": "[tB] Tira",
+            "contents": "Hey Merchants,We've had a couple ongoing patches to Probably Stolen since release, here are the full changelogs for the latest updates.New FeatureAdded a rebindable hotkey for the counter bell, \"Call next customer (Bell)\", bound to B by default. Hold it to dismiss the current customer, the same as holding the bell.ChangesAuto-rotate while sorting is now off by default for new players.Options: The frame rate cap is now on by default and follows your monitor's refresh rate (at least 60 FPS) instead of a fixed 60.On monitors that are not 16:9, the resolution dropdown now shows your monitor's native resolution while a fullscreen mode is selected.Added borderless fullscreen support for non-16:9 monitors.Water Purifier price reduced from 300 to 250. This was missed in the last patch.Load Game: The most recent run now opens with its earlier days already shown.The Smuggler Bay Mod delivered by the Underground Exchange is no longer thrown out with the trash if you leave it in the trash can over...",
+            "feedlabel": "Community Announcements",
+            "date": 1793388689,
+            "feedname": "steam_community_announcements",
+            "feed_type": 1,
+            "appid": 4348910,
+            "tags": [
+              "patchnotes"
+            ]
+          },
+          {
+            "gid": "1847920302240084",
+            "title": "500,000 Shopkeepers have settled on the Lower Levels!",
+            "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302240084",
+            "is_external_url": true,
+            "author": "[tB] Tira",
+            "contents": "Honestly, we're still stunned by yesterday's numbers, hence we keep writing these posts!! Probably Stolen continues to grow and we are now sitting at half a million units sold! And it's all thanks to YOU!500,000 shopkeepers in the game!96% Overwhelmingly Positive reviews from nearly 3,000 Steam reviews! #12 on Steam’s global Most Played chart - still near the biggest Cyberpunk game in history. Should we make a collab?A lot of 1.0 is what it is because of the feedback and surveys you shared after playing the demo and participating in our playtests. Hence why this achievement is one we've all reached together and we are extremely grateful to all of you! But please, keep reporting bugs and share your suggestions with us.🎥 Content creatorsIt’s been a lot of fun watching you play the game, whether its from your posts in Discord, reading the Steam Discussions or on Social platforms! Take a look at some of these amazing creators:YouTubeAmbiguousAmphibian (EN)Blitz (EN)Let's Get Miserable (EN)...",
+            "feedlabel": "Community Announcements",
+            "date": 1793386790,
+            "feedname": "steam_community_announcements",
+            "feed_type": 1,
+            "appid": 4348910,
+            "tags": [
+              "workshop",
+              "mod_reviewed",
+              "ModAct_783923276_1793388249_0",
+              "ModAct_783923276_1793391316_4",
+              "mod_require_rereview"
+            ]
+          },
+          {
+            "gid": "1847920302236082",
+            "title": "350,000 Shopkeepers in 24 hours! THANK YOU",
+            "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302236082",
+            "is_external_url": true,
+            "author": "[tB] Tira",
+            "contents": "We can't really believe it. It's been a full 24 hours since we've launched Probably Stolen, and we have a massive THANK YOU to say to all of you who played it on Steam. Your support carried us to the top of Steam charts.Here's what we all achieved together:350,000+ copies sold in the first 24 hours!320,000+ unique players112,000+ peak concurrent players - just near another fantastic Cyberpunk game! Global Top 12 most-played game on SteamFinishing day one as one of the 12th most played games on Steam is not an outcome we expected, but is definitely beyond anything we have ever imagined! We did it together, folks!Word on the Station\"Probably Stolen is a creative simulator that utilizes its cyberpunk setting to deliver much more than simple store management. Even with some limitations, it offers a fun, tense, decision-packed experience that really matters.\" - Alternativa Nerd \"it's one of those rare cases where a beaten genre still finds a way to surprise us, counter by counter, customer ...",
+            "feedlabel": "Community Announcements",
+            "date": 1793300934,
+            "feedname": "steam_community_announcements",
+            "feed_type": 1,
+            "appid": 4348910,
+            "tags": [
+              "workshop",
+              "mod_reviewed",
+              "ModAct_487176015_1793304449_0",
+              "mod_require_rereview"
+            ]
+          }
+        ],
+        "count": 18
+      }
+    }
+  },
+  {
+    "kind": "local_catalog_and_reservations",
+    "catalog_matches": [],
+    "publication_or_reservation_matches": [
+      {
+        "source": "data\\editorial_history.json",
+        "probably_stolen": false,
+        "repo": false
+      },
+      {
+        "source": "output\\gestion\\2026-11-01_08\\piezas.json",
+        "probably_stolen": false,
+        "repo": false
+      },
+      {
+        "source": "output\\gestion\\2026-11-01_08\\plan_publicaciones.json",
+        "probably_stolen": false,
+        "repo": false
+      }
+    ]
+  },
+  {
+    "kind": "repo_press_kit_inventory",
+    "official_referrer": "https://semiwork.se/",
+    "url": "https://drive.google.com/drive/folders/1Q12NJj2NYKLtUOixD0MD9JjszCHSUrrp",
+    "observed_at_utc": "2026-11-02T15:07:06.839490+00:00",
+    "downloaded_media": false,
+    "files": [
+      {
+        "id": "1hkazdzCL7sb8znVDNkLdhQVQPatw8zII",
+        "path": "Key Art\\REPO-semibots_16x9_no-logo.png"
+      },
+      {
+        "id": "1oUDfb-rYifA_cJbDWNCid_uBMvK3z6KP",
+        "path": "Key Art\\REPO-semibots_16x9_with-logo.png"
+      },
+      {
+        "id": "1MwgLLjjVDlIfG6zBFuAE1fKJ0i_Yrsr6",
+        "path": "Key Art\\REPO-semibots_1x1_no-logo.png"
+      },
+      {
+        "id": "180G4RkWpBI8pzWwb5prBOGgCw2q2YUWd",
+        "path": "Key Art\\REPO_Header Capsule.png"
+      },
+      {
+        "id": "1t0Np_Exk2Ki7w0FuxALHQFojo0kcYHw3",
+        "path": "Key Art\\REPO_Library Capsule.png"
+      },
+      {
+        "id": "10r_CQSpUrTSF6fW5arhRzmcZuF_uwZ1m",
+        "path": "Key Art\\REPO_Library Header.png"
+      },
+      {
+        "id": "1D6Z9zHbM_oL-AM8zgkuRzeyO8CCY2x0E",
+        "path": "Key Art\\REPO_Library Hero.png"
+      },
+      {
+        "id": "1D48DJFllq-xBpyAjwXneUkperGEfzzYW",
+        "path": "Key Art\\REPO_Library Logo.png"
+      },
+      {
+        "id": "1T3K4DUUZrZiZTc5YTJT2M1lFWeVeT8gb",
+        "path": "Key Art\\REPO_Main Capsule.png"
+      },
+      {
+        "id": "15bIz68wRiwLcjcWxl1VxwPMGLp-ToE7E",
+        "path": "Key Art\\REPO_Page Background.png"
+      },
+      {
+        "id": "129xSDK482-MKPwlu4Z0UEjPYOQDY3qWO",
+        "path": "Key Art\\REPO_Small Capsule.png"
+      },
+      {
+        "id": "1a49LqEzEKilUDdPqke8NZF-gr5I0K6bN",
+        "path": "Key Art\\REPO_Vertical Capsule.png"
+      },
+      {
+        "id": "12ARQcZ3vEJtDT5ypxoaiLGP84hiOlX_H",
+        "path": "Logos\\REPO_logo_alpha.png"
+      },
+      {
+        "id": "16I5e_eM4SotQ2yT2nhob52NTP32ECXnx",
+        "path": "Logos\\REPO_logo_shadow_alpha.png"
+      },
+      {
+        "id": "1xedRMDO-6MzKNNTFfXn7mEspjJ_syAqy",
+        "path": "Logos\\REPO_Taxman.png"
+      },
+      {
+        "id": "1jiuBtPUqDh4dMW9lVq-gX4eIcxYweS-T",
+        "path": "Screenshots\\REPO_screenshot_01.png"
+      },
+      {
+        "id": "18u2gFBQw2lJJCCF7iAG535NqhxLtZOel",
+        "path": "Screenshots\\REPO_screenshot_02.png"
+      },
+      {
+        "id": "1H0lizDRKYOh3kQzH8J_4Gvf9nsokfsy1",
+        "path": "Screenshots\\REPO_screenshot_05.png"
+      },
+      {
+        "id": "1ChKfa8vwbGnxel-Xu_QJMbIsbUPdHjiG",
+        "path": "Screenshots\\REPO_screenshot_06.png"
+      },
+      {
+        "id": "1-TRMchPch1OPz0lddt2nkmrZqGiY2oCi",
+        "path": "Screenshots\\REPO_screenshot_07.png"
+      },
+      {
+        "id": "1DJjbR_zmcTLOy3B314y7qWwlnTCbm_ao",
+        "path": "Trailers\\v0.1.0_Release Trailer.mp4"
+      },
+      {
+        "id": "1__-fAEMJXrl6MMRY98HVuG2hWRs3idR_",
+        "path": "Trailers\\v0.1.0_Teaser Trailer.mp4"
+      },
+      {
+        "id": "1LRsyCjiRoTPIrM70xir40kokaEDPhUGq",
+        "path": "Trailers\\v0.2.0_Museum Update_Trailer.mp4"
+      },
+      {
+        "id": "1PoAd7ngHYrV8qVBP34UVJMjj0jcuwxA2",
+        "path": "Trailers\\v0.3.0_Monster Update_Trailer.mp4"
+      },
+      {
+        "id": "1gWoC1jlBGOrx8WsTXDOXfFHpm_C5AuBu",
+        "path": "Trailers\\v0.4.0_Cosmetic Update_Trailer.mp4"
+      },
+      {
+        "id": "1fdzJO4RJbUYFeBzup2EIDsVb2ZjcWnCq",
+        "path": "Trailers\\v0.4.0_Cosmetic Update_Trailer_Vertical.mp4"
+      },
+      {
+        "id": "1rdHZZVt0f5os7W0d1Nz06nEwuNH9ebWe",
+        "path": "Trailers\\v0.5.0_Sunstone Update_Trailer.mp4"
+      },
+      {
+        "id": "1F__Q_sO9tY3ja67L6NhxSL9juEMj7mfs",
+        "path": "Trailers\\v0.5.0_Sunstone Update_Trailer_Vertical.mp4"
+      },
+      {
+        "id": "1bIMGi4t7R4RaARpRUltrgHEhqL6Glk71",
+        "path": "Updates\\v0.2.0_Museum Update\\Header Capsule.png"
+      },
+      {
+        "id": "1JnI1M6o894glrXPG6tt4y9rVRP_DvbiS",
+        "path": "Updates\\v0.2.0_Museum Update\\Main Capsule.png"
+      },
+      {
+        "id": "1llk0tpc3cQm_NLpL8Al3uMcZksLm8HZy",
+        "path": "Updates\\v0.2.0_Museum Update\\Small Capsule.png"
+      },
+      {
+        "id": "1GUKyGO-GhrkiCDe1ieBSmSarAhkUDh59",
+        "path": "Updates\\v0.2.0_Museum Update\\Vertical Capsule.png"
+      },
+      {
+        "id": "10AYVJ5h0c56WG1bR4EYgcFXcisYcwTXt",
+        "path": "Updates\\v0.3.0_Monster Update\\Event Cover.png"
+      },
+      {
+        "id": "12IPpQxCqK_si_6IXGfSq-4XtLFJrEmBs",
+        "path": "Updates\\v0.3.0_Monster Update\\Event Header.png"
+      },
+      {
+        "id": "1Nj9DKkBdO-mJDaHLp_VL29cCrXHpa-8I",
+        "path": "Updates\\v0.3.0_Monster Update\\Header Capsule.png"
+      },
+      {
+        "id": "1opZ6kCqhqhR28qZePELKp1VkATGdTbLR",
+        "path": "Updates\\v0.3.0_Monster Update\\Main Capsule.png"
+      },
+      {
+        "id": "19xHJw5wJvQByfsj-aq5YjHzq_Yi-I7sR",
+        "path": "Updates\\v0.3.0_Monster Update\\Small Capsule.png"
+      },
+      {
+        "id": "12e944RG0LRFw8dkG-MMT0ET1Wf88OA8s",
+        "path": "Updates\\v0.3.0_Monster Update\\Vertical Capsule.png"
+      },
+      {
+        "id": "15756yHArCPTaOeCakad7zOrFFFRXGLrF",
+        "path": "Updates\\v0.4.0_Cosmetic Update\\Cover Image.png"
+      },
+      {
+        "id": "1k72iEAvKuAciQ4Xr9iqcMufsIftYACEe",
+        "path": "Updates\\v0.4.0_Cosmetic Update\\Header Capsule.png"
+      },
+      {
+        "id": "1RJhlhe_sF3KI8-_OhyyEPpbwNQHC156Z",
+        "path": "Updates\\v0.4.0_Cosmetic Update\\Header Image.png"
+      },
+      {
+        "id": "16cnNFrIfdHXW0eS09KZQJ_TmFOJ7HKQ-",
+        "path": "Updates\\v0.4.0_Cosmetic Update\\Main Capsule.png"
+      },
+      {
+        "id": "1gMJQF-uxOcrIGX3fH4208F2c2BpQNngQ",
+        "path": "Updates\\v0.4.0_Cosmetic Update\\Small Capsule.png"
+      },
+      {
+        "id": "1ij8N87PozkLMmdgQ1_9t6sMOxiE-tKq3",
+        "path": "Updates\\v0.4.0_Cosmetic Update\\Vertical Capsule.png"
+      },
+      {
+        "id": "1EkJfBBwuUKxwBdlWrloCEt79rvh0urVd",
+        "path": "Updates\\v0.5.0_Sunstone Update\\Header Capsule.png"
+      },
+      {
+        "id": "18NyMQO0U04VJ-uP8A6laIDXceBipUhH4",
+        "path": "Updates\\v0.5.0_Sunstone Update\\Main Capsule.png"
+      },
+      {
+        "id": "1XKJIGpVTeumEhCwtSpRp3ihAxfdMWZ2u",
+        "path": "Updates\\v0.5.0_Sunstone Update\\Small Capsule.png"
+      },
+      {
+        "id": "1Pw9nCb6rv67q0Abxkdth1Ka22ps2M0q5",
+        "path": "Updates\\v0.5.0_Sunstone Update\\Steam Post Header Image.png"
+      },
+      {
+        "id": "1g8afrmESAm3x3WO9Vt4nQpOeyUwMA_Ul",
+        "path": "Updates\\v0.5.0_Sunstone Update\\Vertical Capsule.png"
+      },
+      {
+        "id": "1Q9BxmY8Hc72E0j1swtnco_AUiPzhc27y",
+        "path": "Wallpapers\\Cosmetic Update_Wallpaper_logo_3840x2160.png"
+      },
+      {
+        "id": "1tv2XmuaLULFlZn4XeMHh6IgY0ds8bEJu",
+        "path": "Wallpapers\\Cosmetic Update_Wallpaper_no-logo_3840x2160.png"
+      },
+      {
+        "id": "1H4CsGLVbt5vF2tmUcmCQMlNw6715UmJB",
+        "path": "Wallpapers\\Monster Update_Wallpaper_logo_2560x1440.png"
+      },
+      {
+        "id": "1BJcPRmneqoSuMmCD_VAG9gXR57OXyRcE",
+        "path": "Wallpapers\\Monster Update_Wallpaper_no-logo_2560x1440.png"
+      },
+      {
+        "id": "1qU_AkIY06MVqhUiZYu5fnLeilrowjyK9",
+        "path": "Wallpapers\\Sunstone Update_Wallpaper_logo_3840x2160.png"
+      },
+      {
+        "id": "11KA7bUGl9O6yYIPpafaBBk28s-u6W1gm",
+        "path": "Wallpapers\\Sunstone Update_Wallpaper_no-logo_3840x2160.png"
+      }
+    ]
+  }
+]

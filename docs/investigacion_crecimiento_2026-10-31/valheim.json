@@ -1,0 +1,71 @@
+{
+  "slug": "valheim",
+  "appid": 892970,
+  "store_url": "https://store.steampowered.com/app/892970/",
+  "research_date_madrid": "2026-10-31",
+  "retrieved_utc": "2026-10-31T18:44:48.017020+00:00",
+  "name": "Valheim",
+  "current_players": 87454,
+  "players_raw": {
+    "response": {
+      "player_count": 87454,
+      "result": 1
+    }
+  },
+  "errors": [
+    "reviews:JSONDecodeError"
+  ],
+  "release_date": {
+    "coming_soon": false,
+    "date": "Sep 9, 2026"
+  },
+  "features": [
+    "Single-player",
+    "Multi-player",
+    "Co-op",
+    "Online Co-op",
+    "Steam Achievements",
+    "Full controller support",
+    "Camera Comfort",
+    "Custom Volume Controls",
+    "Adjustable Difficulty",
+    "DualShock Controller Support",
+    "DualShock Controller Support",
+    "DualSense Controller Support",
+    "DualSense Controller Support",
+    "Save Anytime",
+    "Stereo Sound",
+    "Steam Cloud",
+    "Stats",
+    "Remote Play on Tablet",
+    "Family Sharing"
+  ],
+  "publisher": [
+    "Coffee Stain Publishing"
+  ],
+  "website": "http://www.valheim.com",
+  "official_news": [
+    {
+      "title": "Patch 1.0.21",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302230913",
+      "date": 1793193085,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "Patch 1.0.20",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1846651706676865",
+      "date": 1792054697,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "Patch 1.0.17",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1845383656396226",
+      "date": 1791288710,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    }
+  ],
+  "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+}

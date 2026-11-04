@@ -1,0 +1,119 @@
+===============================================================================
+ANÁLISIS DE ESTRUCTURA Y PATRONES DE GUIONES VIRALES (VIRAL SCRIPTS BLUEPRINT)
+===============================================================================
+
+Este documento analiza los 34 guiones virales contenidos en la carpeta `ViralScripts/`. 
+Estos guiones están diseñados para plataformas de vídeo vertical (TikTok, Instagram Reels, YouTube Shorts) 
+y logran millones de visualizaciones, guardados y comentarios mediante una estructura psicológica de 5 actos.
+
+-------------------------------------------------------------------------------
+1. ¿POR QUÉ SON TAN VIRALES ESTOS GUIONES? (FACTORES CLAVE DE RETENCIÓN Y ALGORITMO)
+-------------------------------------------------------------------------------
+
+A. Proyección Mental de Grupo ("Friendship Delegation"):
+   En lugar de describir el juego de forma impersonal ("los jugadores pueden hacer X"), 
+   el guión asigna ROLES PERSONALES Y ESPECÍFICOS a "ti y a tus amigos":
+   "Uno de vosotros hace X, tu amigo hace Y, otro hace Z, mientras tú haces W".
+   Esto desencadena una reacción en cadena en comentarios: los usuarios etiquetan a sus amigos 
+   especificando su rol ("@Carlos tú eres el que estrella el coche @Dani tú el que repara").
+   Esta interacción masiva en comentarios impulsa el vídeo en el algoritmo.
+
+B. Ritmo de Alta Retención (Pacing Fricción Cero):
+   - Frases cortas, directas y sin adjetivos vacíos ("increíble", "asombroso").
+   - Uso de lenguaje de acción en presente continuo ("paddles", "fixes", "loots", "drives").
+   - Duración exacta: 30 a 50 palabras por locución (~15 a 25 segundos hablados).
+
+C. El Giro Divertido o Caótico ("The Twist / Chaos Escalation"):
+   Introducen un giro inesperado ("But here is the twist...") que añade comedia, tensión o una mecánica absurda/física que rompe la monotonía.
+
+D. Llamada a la Acción de Doble Bucle (Dual CTA):
+   Nombra el título del juego de forma clara + Plataforma (Steam/Console) + Pide explícitamente etiquetar amigos y seguir el canal.
+
+-------------------------------------------------------------------------------
+2. LA ESTRUCTURA DE 5 ACTOS DE UN GUIÓN VIRAL
+-------------------------------------------------------------------------------
+
+ACTO 1: EL GANCHO DE ALTO CONSTRASTE (0-3 SEGUNDOS)
+   Fórmula A (Directa): "Here is a new [N-player / co-op / genre] game where [concepto central de impacto]..."
+   Fórmula B (Reacción/Skit): "Oh look guys, a dolphin... Wait, guys behind you! What the... Here's a new 4-player..."
+   Regla: Declarar de inmediato el número de jugadores y la premisa más llamativa.
+
+ACTO 2: DELEGACIÓN DE ROLES / REPARTIMIENTO DE TAREAS (3-12 SEGUNDOS)
+   Estructura fija:
+   - Para 2 Jugadores: "You play as [Rol 1] while your friend [Rol 2]..." / "One of you [Acción A] while your friend [Acción B]..."
+   - Para 3-4 Jugadores: "One of you [Rol 1]. Your friend [Rol 2]. Another [Rol 3], while YOU [Rol 4]..."
+   Regla: Cada amigo debe tener una tarea distinta, complementaria y visualmente clara.
+
+ACTO 3: EL GIRO / ESCALADA DE CAOS / MECÁNICA CLAVE (12-20 SEGUNDOS)
+   Frase de transición: "But here is the twist..." / "But here is the thing..." / "And when you have time..." / "But the deeper you go..."
+   Elementos: Físicas realistas, edificios colapsando, incendios, poder abofetear a tus amigos, mecánicas de sigilo o muerte permanente.
+
+ACTO 4: TÍTULO Y PLATAFORMAS (20-23 SEGUNDOS)
+   Fórmula: "This is [Nombre del Juego] and it's [coming soon to Steam / out now on Steam / coming to PS5, Xbox and PC]."
+
+ACTO 5: LLAMADA A LA ACCIÓN VIRAL (23-25 SEGUNDOS)
+   Fórmula: "Tag your co-op friends [o co-op partner / squad] and follow for more fun co-op games."
+
+-------------------------------------------------------------------------------
+3. EJEMPLOS EXTRAÍDOS Y CATEGORIZADOS DE LA COLECCIÓN
+-------------------------------------------------------------------------------
+
+[CATEGORÍA 1: CO-OP CAÓTICO / TRABAJO EN EQUIPO (3-4 JUGADORES)]
+Ejemplo 1 (Submarino / Sona):
+"Here is a new fun co-op game where you and your friends work as a submarine crew. One of you steals the submarine. Another watch out for enemy ships while you keep systems running. But here is the twist. The submarine is falling apart. Fires break out. Leaks flood the place. And systems fail. So you and your friends need to fix them fast to complete your mission. You can even slap your friends if they're not doing their job properly. This is Sona and it's coming soon to Steam. Tag your co-op friends and follow for more fun co-op games."
+
+Ejemplo 2 (Balsa en el Océano / Sho):
+"Here's a new 4-player co-op survival game where you and your friends are stranded in the middle of the ocean on a tiny raft. One of you paddles to keep the raft on course. Your friend fishes for food and fresh water. Another repairs the raft after every storm while you watch for sharks and other dangers in the water. But the raft has realistic physics. Every wave rocks it and player movements will change its balance. So one mistake can end the whole run. This is Sho and it's coming soon to Steam. Tag your co-op friends and follow for more fun co-op games."
+
+Ejemplo 3 (Tren en Movimiento / Railborne):
+"Here is a new open world 4 player co-op survival game where you and your friends can only survive by staying inside a moving train. One of you builds the train and make it work. Someone else explores the open world and scavenge resources. One loots buildings and brings items back to the base while you drive the whole thing and head to the next location. Upgrade your engine, water systems and plant trees to keep everyone alive. This is Railborne and it's coming soon to Steam. Tag your co-op friends and follow for more fun co-op games."
+
+[CATEGORÍA 2: CO-OP PAREJA / 2 JUGADORES]
+Ejemplo 4 (Caballeros y Hechizos / Crimson Moon):
+"Here's a new 2 player co-op game where you and only one friend play as knights fighting demons together. You fight with brutal melee weapons while your friend uses supernatural powers to destroy enemies from distance. You'll fight through hordes of demons and dead vampires and massive bosses while completing dangerous missions. But the deeper you go, the stronger the enemy becomes. So you need to coordinate attacks and work together to bring him down. This is Crimson Moon and it's coming September 1st to Steam. Tag one co-op friend and follow for more fun co-op games."
+
+Ejemplo 5 (Capibara y Cangrejo / Cappy Castaway):
+"Here is a new co-op game for only two players where you play as a capybara while your friend plays as a crab. You swim, they can sniff out secrets while your friend can fly, carry items and help you reach places you couldn't get alone. Together, you'll explore an island, solve puzzles and meet other animals. And it can be played online or local split screen. This is Cappy Castaway and it's coming soon to Steam. Tag your co-op friend and follow for more fun co-op games."
+
+[CATEGORÍA 3: SIMULADORES Y JUEGOS CHILL / TRABAJOS DERTALLADOS]
+Ejemplo 6 (Reparación de Electrónica / ReStory):
+"Here is a new simulator game where your job is fixing old electronics. You run a small repair shop restoring old game consoles, flip phones, music players, cameras, and other nostalgic gadgets. Fix the PlayStation 2, Motorola phones, PSPs, Walkmans, Ataris, and so many other things. You're growing your shop, searching online for spare parts, and repairing devices to make money. This is ReStory, chill electronic repairs, and it's coming soon to Steam. Follow for more fun, chill games."
+
+Ejemplo 7 (Conductor de Uber / Rideshare Simulator):
+"Here is a new open world driving game where you make money by working as an Uber driver. You pick up passengers from all over the city, drive them to their destinations, follow traffic laws, and try not to crash your car before the ride ends. And when you have time, you'll wash your car, repair damages, upgrade your vehicle, and improve your rating to attract better paying customers. This is Rideshare Simulator and it's coming soon to Steam, PlayStation, and Xbox. Follow for more fun open world games."
+
+-------------------------------------------------------------------------------
+4. GUÍA DE APLICACIÓN EN EL GENERADOR DE GUIÓN (LLM SYSTEM PROMPT)
+-------------------------------------------------------------------------------
+Al generar un nuevo guión para cualquier videojuego:
+1. Identifica el número de jugadores (1, 2, 3 o 4) o el género (Co-op, Simulación, Survival).
+2. Si es multijugador / Co-op, OBLIGATORIAMENTE incluye la repartición de roles ("One of you..., your friend..., while you...").
+3. Incluye la frase del giro ("But here is the twist...") con un detalle de físicas, peligro o interacción divertida.
+4. Mantén la sintaxis en inglés o español según el idioma seleccionado, conservando exactamente el ritmo picado y dinámico.
+
+-------------------------------------------------------------------------------
+5. PERFIL LINGÜÍSTICO Y VOCABULARIO VIRAL ("BUDDY HYPE")
+-------------------------------------------------------------------------------
+A. Registro y Tono (Conversacional Colega PG-13):
+   - Voz: Como un colega emocionado en una llamada de Discord o en TikTok que acaba de descubrir un juegazo y te lo enseña. Cero locutor de teletienda o trailer corporativo.
+   - Contracciones naturales habladas: "Here's", "you'll", "it's", "don't", "there's", "you're", "can't".
+   - Dirección directa e inclusiva: "you and your friends", "you and your squad".
+   - Tensión lúdica y caos emergente: el drama proviene de los desastres y errores del equipo ("everything falls apart in seconds", "one mistake wipes the run", "panic sets in"), nunca tragedia solemne.
+
+B. Verbos Cinéticos y de Acción Física (Mandatory):
+   - build, rebuild, hammer, weld, scavenge, loot, drive, steer, paddle, slap, smash, dodge, parry, sneak, toss, fling, drag, fix, repair, clutch, wipe out, blow up, survive.
+   - Prohibidos verbos cognitivos o pasivos: "consider", "appreciate", "understand", "features", "showcases".
+
+C. Sustantivos Concretos y Táctiles (Cero Abstracción):
+   - Nombrar peligros y objetos físicos reales: rust, scrap, planks, cement blocks, leaks, fires, torpedoes, sharks, blizzard, monsters, alarms, radiation, shotgun, tape.
+   - Prohibido el metalenguaje de desarrollo de videojuegos: nada de "gameplay loop", "progression system", "mechanics", "procedural generation", "lore".
+
+D. Lista Negra de Palabras Prohibidas y Relleno de Marketing (Zero Corporate BS):
+   - Prohibidos adjetivos vacíos: amazing, incredible, unbelievable, epic, revolutionary, masterpiece, breathtaking, stunning, unique experience, thrilling.
+   - Prohibidos clichés de marketing: delve into, immerse yourself, experience the thrill, embark on a journey, explore the vast world, testament to, utilize, boasts, features an array of.
+   - Regla de oro: No decir que el juego es divertido o increíble; MOSTRAR la mecánica o consecuencia caótica que lo hace divertido.
+
+E. Conectores Hablados de Retención:
+   - Conectores orales naturales: "But", "Until", "Except", "The problem is", "The catch?", "The worst part?", "And if that's not enough".
+   - Prohibidas transiciones académicas o formales: "Furthermore", "Moreover", "In addition", "However".
+===============================================================================

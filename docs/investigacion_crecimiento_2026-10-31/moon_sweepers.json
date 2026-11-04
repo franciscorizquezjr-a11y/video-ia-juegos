@@ -1,0 +1,69 @@
+{
+  "slug": "moon_sweepers",
+  "appid": 5335510,
+  "store_url": "https://store.steampowered.com/app/5335510/",
+  "research_date_madrid": "2026-10-31",
+  "retrieved_utc": "2026-10-31T18:44:38.605965+00:00",
+  "name": "Moon Sweepers",
+  "current_players": 74642,
+  "players_raw": {
+    "response": {
+      "player_count": 74642,
+      "result": 1
+    }
+  },
+  "errors": [
+    "reviews:JSONDecodeError"
+  ],
+  "release_date": {
+    "coming_soon": false,
+    "date": "Oct 23, 2026"
+  },
+  "features": [
+    "Single-player",
+    "Multi-player",
+    "Co-op",
+    "Online Co-op",
+    "Steam Achievements",
+    "Full controller support",
+    "Custom Volume Controls",
+    "#category_playable_at_your_own_pace",
+    "Playable without Timed Input",
+    "DualShock Controller Support",
+    "DualShock Controller Support",
+    "DualSense Controller Support",
+    "DualSense Controller Support",
+    "Steam Input API Support",
+    "Stereo Sound",
+    "Steam Cloud",
+    "Family Sharing"
+  ],
+  "publisher": [
+    "DragDrop Games"
+  ],
+  "website": "https://discord.gg/5ATRkXkAAe",
+  "official_news": [
+    {
+      "title": "600,000",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302238715",
+      "date": 1793368843,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "Moon Sweepers 1.0.5 Patch",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302229973",
+      "date": 1793173271,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "Moon Sweepers 1.0.4 Patch",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847286114042960",
+      "date": 1792961246,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    }
+  ],
+  "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+}

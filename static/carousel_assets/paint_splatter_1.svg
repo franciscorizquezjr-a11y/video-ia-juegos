@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <!-- Paint Splatter 1 (Yellow Ink Spray / Droplets) -->
+  <g fill="#FFBE1A">
+    <!-- Center blotch -->
+    <path d="M 95,85 C 110,80 125,92 118,108 C 112,122 92,125 82,112 C 75,98 84,88 95,85 Z" />
+    <path d="M 115,102 C 128,104 135,115 129,124 C 123,131 112,125 115,102 Z" />
+    <path d="M 80,105 C 72,110 65,102 68,95 C 72,88 84,95 80,105 Z" />
+    <!-- Radiating droplets -->
+    <circle cx="145" cy="82" r="5.5" />
+    <circle cx="158" cy="95" r="3.2" />
+    <circle cx="138" cy="65" r="4.0" />
+    <circle cx="168" cy="72" r="2.2" />
+    <circle cx="120" cy="52" r="4.8" />
+    <circle cx="102" cy="42" r="3.0" />
+    <circle cx="70" cy="62" r="4.2" />
+    <circle cx="55" cy="75" r="3.5" />
+    <circle cx="48" cy="98" r="5.0" />
+    <circle cx="58" cy="128" r="3.8" />
+    <circle cx="78" cy="142" r="4.5" />
+    <circle cx="98" cy="155" r="3.0" />
+    <circle cx="125" cy="148" r="4.2" />
+    <circle cx="148" cy="132" r="3.5" />
+    <circle cx="162" cy="120" r="2.0" />
+    <circle cx="175" cy="105" r="1.8" />
+    <!-- Tiny micro sprays -->
+    <circle cx="152" cy="55" r="1.5" />
+    <circle cx="38" cy="85" r="1.8" />
+    <circle cx="112" cy="168" r="2.0" />
+    <circle cx="62" cy="155" r="1.6" />
+  </g>
+</svg>

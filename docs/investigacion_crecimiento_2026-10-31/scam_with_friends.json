@@ -1,0 +1,67 @@
+{
+  "slug": "scam_with_friends",
+  "appid": 4954910,
+  "store_url": "https://store.steampowered.com/app/4954910/",
+  "research_date_madrid": "2026-10-31",
+  "retrieved_utc": "2026-10-31T18:44:40.505119+00:00",
+  "name": "Scam With Your Friends",
+  "current_players": 4668,
+  "players_raw": {
+    "response": {
+      "player_count": 4668,
+      "result": 1
+    }
+  },
+  "errors": [
+    "reviews:JSONDecodeError"
+  ],
+  "release_date": {
+    "coming_soon": false,
+    "date": "Oct 15, 2026"
+  },
+  "features": [
+    "Single-player",
+    "Multi-player",
+    "Co-op",
+    "Online Co-op",
+    "Steam Achievements",
+    "Full controller support",
+    "Steam Workshop",
+    "Custom Volume Controls",
+    "Adjustable Difficulty",
+    "DualShock Controller Support",
+    "DualShock Controller Support",
+    "DualSense Controller Support",
+    "DualSense Controller Support",
+    "Stereo Sound",
+    "Family Sharing"
+  ],
+  "publisher": [
+    "Jatater Worldwide"
+  ],
+  "website": "https://jataterworldwide.com/scam-with-your-friends/",
+  "official_news": [
+    {
+      "title": "Major Speech & Russian Improvements, Smoother Calls & Bug Fixes!",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302229652",
+      "date": 1793163145,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "Gladia Speech Recognition, Smarter Boss Reviews, Improved Localization & Office",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847286114043683",
+      "date": 1792989789,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "Update 0.1.90: Streamer Mode, Lobby Security & Lottery Rework",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847286114041407",
+      "date": 1792916041,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    }
+  ],
+  "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+}

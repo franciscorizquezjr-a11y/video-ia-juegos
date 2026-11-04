@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 120" preserveAspectRatio="none">
+  <!-- Torn Paper Edge Divider (Organic ripped paper) -->
+  <defs>
+    <filter id="tornShadow" x="-2%" y="-5%" width="104%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="4" flood-color="#000" flood-opacity="0.12" />
+    </filter>
+  </defs>
+  <path d="M 0,0
+           L 1000,0
+           L 1000,60
+           L 970,55 L 945,68 L 920,52 L 895,64 L 870,56 L 840,72 L 815,58 L 785,69 L 760,54
+           L 730,70 L 705,58 L 675,66 L 645,52 L 620,71 L 590,56 L 565,68 L 535,54 L 505,72
+           L 475,58 L 445,66 L 415,53 L 385,70 L 355,57 L 325,68 L 295,54 L 265,71 L 235,56
+           L 205,67 L 175,53 L 145,69 L 115,56 L 85,67 L 55,52 L 25,65 L 0,55
+           Z"
+        fill="#FFFFFF"
+        filter="url(#tornShadow)" />
+</svg>

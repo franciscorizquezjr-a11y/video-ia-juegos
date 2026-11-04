@@ -1,0 +1,68 @@
+{
+  "slug": "slay_spire2",
+  "appid": 2868840,
+  "store_url": "https://store.steampowered.com/app/2868840/",
+  "research_date_madrid": "2026-10-31",
+  "retrieved_utc": "2026-10-31T18:44:41.984128+00:00",
+  "name": "Slay the Spire 2",
+  "current_players": 54443,
+  "players_raw": {
+    "response": {
+      "player_count": 54443,
+      "result": 1
+    }
+  },
+  "errors": [
+    "reviews:JSONDecodeError"
+  ],
+  "release_date": {
+    "coming_soon": false,
+    "date": "Mar 5, 2026"
+  },
+  "features": [
+    "Single-player",
+    "Multi-player",
+    "Co-op",
+    "Online Co-op",
+    "Full controller support",
+    "Custom Volume Controls",
+    "Mouse Only Option",
+    "#category_playable_at_your_own_pace",
+    "Playable without Timed Input",
+    "DualSense Controller Support",
+    "Save Anytime",
+    "Steam Input API Support",
+    "Steam Cloud",
+    "Stats",
+    "Steam Leaderboards",
+    "Family Sharing"
+  ],
+  "publisher": [
+    "Mega Crit"
+  ],
+  "website": "https://megacrit.com",
+  "official_news": [
+    {
+      "title": "The Neowsletter - October 2026",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302236888",
+      "date": 1793323498,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "The Neowsletter - September 2026",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1844751498226173",
+      "date": 1790379341,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "The Neowsletter - August 2026",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1840944183781031",
+      "date": 1786751537,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    }
+  ],
+  "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+}

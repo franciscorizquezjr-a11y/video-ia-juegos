@@ -1,0 +1,30 @@
+.logo-lab-input-row { display:flex; gap:12px; margin:12px 0; }
+.logo-lab-input-row input { flex:1; min-width:0; }
+.logo-lab-upload { border:1px dashed var(--text-secondary); border-radius:12px; padding:16px; margin:20px 0; }
+.logo-lab-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:18px; margin-top:20px; }
+.logo-lab-source-grid { display:grid; grid-template-columns:minmax(0,1.4fr) minmax(0,1fr); gap:18px; }
+.logo-lab-bounds { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin:12px 0; }
+.logo-lab-bounds label { font-size:13px; color:var(--text-secondary); }
+.logo-lab-bounds input { width:100%; margin-top:6px; }
+#logoLabCanvas { display:block; width:100%; height:auto; margin-top:16px; border-radius:8px; touch-action:none; cursor:crosshair; }
+.logo-lab-algorithm-status { font-size:13px; color:var(--text-secondary); margin:12px 0; overflow-wrap:anywhere; }
+.logo-lab-grid .card { min-width:0; }
+.logo-lab-grid .btn { width:100%; justify-content:center; }
+.logo-lab-error { color:var(--accent-red); }
+.logo-lab-warning { color:#d9b66f; }
+.logo-lab-preview { height:260px; display:flex; align-items:center; justify-content:center; border-radius:12px; overflow:hidden; background:#222; margin:16px 0; padding:12px; }
+.logo-lab-preview img { max-width:100%; max-height:100%; object-fit:contain; }
+.logo-lab-checker { background-color:#eee; background-image:conic-gradient(#bbb 25%,transparent 0 50%,#bbb 0 75%,transparent 0); background-size:24px 24px; }
+.logo-lab-dark { background:#151515; }
+.logo-lab-light { background:#fff; }
+#tab-logo_lab [hidden] { display:none !important; }
+@media(max-width:1200px) { .logo-lab-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:900px) { .logo-lab-source-grid { grid-template-columns:1fr; } .logo-lab-input-row { flex-direction:column; } }
+@media(max-width:600px) { .logo-lab-grid { grid-template-columns:1fr; } .logo-lab-bounds { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+/* Keep the extra Studio tab reachable on laptop screens. */
+@media(max-width:1650px) {
+    #viewStudio > .app-header { grid-template-columns:minmax(0,1fr) auto; height:auto; gap:10px; padding:12px 20px; }
+    #viewStudio > .app-header .header-center { grid-column:1 / -1; grid-row:2; width:100%; min-width:0; }
+    #viewStudio #mainNav { max-width:100%; overflow-x:auto; }
+    #viewStudio #mainNav .nav-tab { flex-shrink:0; }
+}

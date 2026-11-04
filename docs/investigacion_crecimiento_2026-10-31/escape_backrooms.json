@@ -1,0 +1,65 @@
+{
+  "slug": "escape_backrooms",
+  "appid": 1943950,
+  "store_url": "https://store.steampowered.com/app/1943950/",
+  "research_date_madrid": "2026-10-31",
+  "retrieved_utc": "2026-10-31T18:44:44.485751+00:00",
+  "name": "Escape the Backrooms",
+  "current_players": 5941,
+  "players_raw": {
+    "response": {
+      "player_count": 5941,
+      "result": 1
+    }
+  },
+  "errors": [
+    "reviews:JSONDecodeError"
+  ],
+  "release_date": {
+    "coming_soon": false,
+    "date": "Oct 23, 2025"
+  },
+  "features": [
+    "Single-player",
+    "Multi-player",
+    "Co-op",
+    "Online Co-op",
+    "Steam Achievements",
+    "Camera Comfort",
+    "Custom Volume Controls",
+    "Adjustable Difficulty",
+    "Playable without Timed Input",
+    "Stereo Sound",
+    "Partial Controller Support",
+    "Steam Cloud",
+    "Family Sharing"
+  ],
+  "publisher": [
+    "Secret Mode"
+  ],
+  "website": null,
+  "official_news": [
+    {
+      "title": "The Lost & Found Cosmetics are now Available!",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302234538",
+      "date": 1793276120,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "Lost & Found Update ",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302234498",
+      "date": 1793275220,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "Escape From Playtime x Escape The Backrooms Bundle",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847286114029486",
+      "date": 1792599400,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    }
+  ],
+  "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+}

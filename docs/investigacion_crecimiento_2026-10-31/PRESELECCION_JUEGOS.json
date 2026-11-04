@@ -1,0 +1,906 @@
+[
+  {
+    "name": "R.E.P.O.",
+    "slug": "repo",
+    "appid": 3241660,
+    "primary_brand": "PartyLoot",
+    "priority_editorial": "A",
+    "reason": "Física, botín y cooperación; actualización reciente y escena que puede tener causa y consecuencia.",
+    "draft_hook_requires_shot_verification": "The monster is not the only thing that can ruin this job.",
+    "current_players_snapshot": 66252,
+    "retrieved_utc": "2026-10-31T18:44:38.606964+00:00",
+    "store_url": "https://store.steampowered.com/app/3241660/",
+    "release": {
+      "coming_soon": false,
+      "date": "Feb 26, 2025"
+    },
+    "co_op_features": [
+      "Co-op",
+      "Online Co-op"
+    ],
+    "published_history_check": {
+      "eligible": true,
+      "cooldown_days": 21,
+      "next_eligible_date": null,
+      "conflicts": []
+    },
+    "prepared_week_reservations": [],
+    "priority_is_not_a_view_prediction": true,
+    "footage_full_review": "not performed; official screenshots inspected for 12 candidates",
+    "rights_check_before_production": "pending exact source/kit review",
+    "latest_official_news": [
+      {
+        "title": "R.E.P.O. v0.5.0 - The Sunstone Update",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302234696",
+        "date": 1793279213,
+        "feedname": "steam_community_announcements"
+      }
+    ]
+  },
+  {
+    "name": "Probably Stolen - Cyberpunk Shopkeeper Sim",
+    "slug": "probably_stolen",
+    "appid": 4348910,
+    "primary_brand": "NextLoot",
+    "priority_editorial": "A, condicionado a plano legible",
+    "reason": "Alta demanda de estreno; tienda con riesgo claro. Las capturas muestran interfaz densa: no montar el Short como un menú entero.",
+    "draft_hook_requires_shot_verification": "That customer could cost you the whole shop.",
+    "current_players_snapshot": 82601,
+    "retrieved_utc": "2026-10-31T18:44:38.605965+00:00",
+    "store_url": "https://store.steampowered.com/app/4348910/",
+    "release": {
+      "coming_soon": false,
+      "date": "Oct 28, 2026"
+    },
+    "co_op_features": [],
+    "published_history_check": {
+      "eligible": true,
+      "cooldown_days": 21,
+      "next_eligible_date": null,
+      "conflicts": []
+    },
+    "prepared_week_reservations": [],
+    "priority_is_not_a_view_prediction": true,
+    "footage_full_review": "not performed; official screenshots inspected for 12 candidates",
+    "rights_check_before_production": "pending exact source/kit review",
+    "latest_official_news": [
+      {
+        "title": "Modding Security Update - 1.0.0.6",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302241521",
+        "date": 1793433679,
+        "feedname": "steam_community_announcements"
+      }
+    ]
+  },
+  {
+    "name": "Moon Sweepers",
+    "slug": "moon_sweepers",
+    "appid": 5335510,
+    "primary_brand": "PartyLoot",
+    "priority_editorial": "A",
+    "reason": "Premisa inmediata: limpiar la Luna empezando con un cepillo; cooperativo, progreso visual y estreno reciente.",
+    "draft_hook_requires_shot_verification": "The Moon needs cleaning. And you brought a toothbrush.",
+    "current_players_snapshot": 74642,
+    "retrieved_utc": "2026-10-31T18:44:38.605965+00:00",
+    "store_url": "https://store.steampowered.com/app/5335510/",
+    "release": {
+      "coming_soon": false,
+      "date": "Oct 23, 2026"
+    },
+    "co_op_features": [
+      "Co-op",
+      "Online Co-op"
+    ],
+    "published_history_check": {
+      "eligible": true,
+      "cooldown_days": 21,
+      "next_eligible_date": null,
+      "conflicts": []
+    },
+    "prepared_week_reservations": [],
+    "priority_is_not_a_view_prediction": true,
+    "footage_full_review": "not performed; official screenshots inspected for 12 candidates",
+    "rights_check_before_production": "pending exact source/kit review",
+    "latest_official_news": [
+      {
+        "title": "600,000",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302238715",
+        "date": 1793368843,
+        "feedname": "steam_community_announcements"
+      }
+    ]
+  },
+  {
+    "name": "PEAK",
+    "slug": "peak",
+    "appid": 3527290,
+    "primary_brand": "PartyLoot",
+    "priority_editorial": "A",
+    "reason": "Altura, caída y cooperación se leen sin explicar un menú; demanda actual sustancial.",
+    "draft_hook_requires_shot_verification": "One bad jump, and the whole rescue gets complicated.",
+    "current_players_snapshot": 17556,
+    "retrieved_utc": "2026-10-31T18:44:39.913040+00:00",
+    "store_url": "https://store.steampowered.com/app/3527290/",
+    "release": {
+      "coming_soon": false,
+      "date": "Jun 16, 2025"
+    },
+    "co_op_features": [
+      "Co-op",
+      "Online Co-op"
+    ],
+    "published_history_check": {
+      "eligible": true,
+      "cooldown_days": 21,
+      "next_eligible_date": null,
+      "conflicts": []
+    },
+    "prepared_week_reservations": [],
+    "priority_is_not_a_view_prediction": true,
+    "footage_full_review": "not performed; official screenshots inspected for 12 candidates",
+    "rights_check_before_production": "pending exact source/kit review",
+    "latest_official_news": [
+      {
+        "title": "Patch Notes 3.0.1",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847286114037507",
+        "date": 1792779320,
+        "feedname": "steam_community_announcements"
+      }
+    ]
+  },
+  {
+    "name": "RV There Yet?",
+    "slug": "rv_there_yet",
+    "appid": 3949040,
+    "primary_brand": "PartyLoot",
+    "priority_editorial": "B",
+    "reason": "Viaje y coordinación claros; no confundir su éxito histórico con un nuevo pico viral hoy.",
+    "draft_hook_requires_shot_verification": "Your group planned a road trip. Nobody planned this road.",
+    "current_players_snapshot": 8039,
+    "retrieved_utc": "2026-10-31T18:44:40.000860+00:00",
+    "store_url": "https://store.steampowered.com/app/3949040/",
+    "release": {
+      "coming_soon": false,
+      "date": "Oct 21, 2025"
+    },
+    "co_op_features": [
+      "Co-op",
+      "Online Co-op"
+    ],
+    "published_history_check": {
+      "eligible": true,
+      "cooldown_days": 21,
+      "next_eligible_date": null,
+      "conflicts": []
+    },
+    "prepared_week_reservations": [],
+    "priority_is_not_a_view_prediction": true,
+    "footage_full_review": "not performed; official screenshots inspected for 12 candidates",
+    "rights_check_before_production": "pending exact source/kit review",
+    "latest_official_news": [
+      {
+        "title": "Bugfix Patch 1.4.1.21945",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302239209",
+        "date": 1793376352,
+        "feedname": "steam_community_announcements"
+      }
+    ]
+  },
+  {
+    "name": "Scam With Your Friends",
+    "slug": "scam_with_friends",
+    "appid": 4954910,
+    "primary_brand": "PartyLoot",
+    "priority_editorial": "B, revisar enfoque",
+    "reason": "Estreno cooperativo con situación de oficina; verificar escena, tono y aportación real antes de seleccionarlo.",
+    "draft_hook_requires_shot_verification": "Your office has a quota. Your friends have other plans.",
+    "current_players_snapshot": 4668,
+    "retrieved_utc": "2026-10-31T18:44:40.505119+00:00",
+    "store_url": "https://store.steampowered.com/app/4954910/",
+    "release": {
+      "coming_soon": false,
+      "date": "Oct 15, 2026"
+    },
+    "co_op_features": [
+      "Co-op",
+      "Online Co-op"
+    ],
+    "published_history_check": {
+      "eligible": true,
+      "cooldown_days": 21,
+      "next_eligible_date": null,
+      "conflicts": []
+    },
+    "prepared_week_reservations": [],
+    "priority_is_not_a_view_prediction": true,
+    "footage_full_review": "not performed; official screenshots inspected for 12 candidates",
+    "rights_check_before_production": "pending exact source/kit review",
+    "latest_official_news": [
+      {
+        "title": "Major Speech & Russian Improvements, Smoother Calls & Bug Fixes!",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302229652",
+        "date": 1793163145,
+        "feedname": "steam_community_announcements"
+      }
+    ]
+  },
+  {
+    "name": "Nomad Drive",
+    "slug": "nomad_drive",
+    "appid": 2223980,
+    "primary_brand": "PartyLoot",
+    "priority_editorial": "A/B, revisar metraje",
+    "reason": "Estreno reciente y supervivencia sobre ruedas; comprobar cuál es el momento visual distintivo frente a RV There Yet.",
+    "draft_hook_requires_shot_verification": "Your survival base has wheels. Keeping it moving is the problem.",
+    "current_players_snapshot": 4207,
+    "retrieved_utc": "2026-10-31T18:44:41.426386+00:00",
+    "store_url": "https://store.steampowered.com/app/2223980/",
+    "release": {
+      "coming_soon": false,
+      "date": "Oct 27, 2026"
+    },
+    "co_op_features": [
+      "Co-op",
+      "Online Co-op"
+    ],
+    "published_history_check": {
+      "eligible": true,
+      "cooldown_days": 21,
+      "next_eligible_date": null,
+      "conflicts": []
+    },
+    "prepared_week_reservations": [],
+    "priority_is_not_a_view_prediction": true,
+    "footage_full_review": "not performed; official screenshots inspected for 12 candidates",
+    "rights_check_before_production": "pending exact source/kit review",
+    "latest_official_news": [
+      {
+        "title": "Road Ahead",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302238574",
+        "date": 1793366848,
+        "feedname": "steam_community_announcements"
+      }
+    ]
+  },
+  {
+    "name": "ATMOSFAR",
+    "slug": "atmosfar",
+    "appid": 1798230,
+    "primary_brand": "NextLoot",
+    "priority_editorial": "A/B, oportunidad visual",
+    "reason": "Lanzamiento reciente, islas flotantes y vehículos; demanda menor, pero buen potencial de comprensión visual.",
+    "draft_hook_requires_shot_verification": "Your next supply run is between floating islands.",
+    "current_players_snapshot": 1890,
+    "retrieved_utc": "2026-10-31T18:44:41.915379+00:00",
+    "store_url": "https://store.steampowered.com/app/1798230/",
+    "release": {
+      "coming_soon": false,
+      "date": "Oct 29, 2026"
+    },
+    "co_op_features": [
+      "Co-op",
+      "Online Co-op"
+    ],
+    "published_history_check": {
+      "eligible": true,
+      "cooldown_days": 21,
+      "next_eligible_date": null,
+      "conflicts": []
+    },
+    "prepared_week_reservations": [],
+    "priority_is_not_a_view_prediction": true,
+    "footage_full_review": "not performed; official screenshots inspected for 12 candidates",
+    "rights_check_before_production": "pending exact source/kit review",
+    "latest_official_news": [
+      {
+        "title": "Minor update: ATMOSFAR EA 1.0-6",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302242171",
+        "date": 1793454340,
+        "feedname": "steam_community_announcements"
+      }
+    ]
+  },
+  {
+    "name": "Slay the Spire 2",
+    "slug": "slay_spire2",
+    "appid": 2868840,
+    "primary_brand": "NextLoot",
+    "priority_editorial": "B",
+    "reason": "Demanda alta; cartas y texto pequeño complican el recorte móvil. También tiene cooperativo, que debe explicarse con un ángulo específico si se usa en PartyLoot.",
+    "draft_hook_requires_shot_verification": "One card can change the entire plan.",
+    "current_players_snapshot": 54443,
+    "retrieved_utc": "2026-10-31T18:44:41.984128+00:00",
+    "store_url": "https://store.steampowered.com/app/2868840/",
+    "release": {
+      "coming_soon": false,
+      "date": "Mar 5, 2026"
+    },
+    "co_op_features": [
+      "Co-op",
+      "Online Co-op"
+    ],
+    "published_history_check": {
+      "eligible": true,
+      "cooldown_days": 21,
+      "next_eligible_date": null,
+      "conflicts": []
+    },
+    "prepared_week_reservations": [],
+    "priority_is_not_a_view_prediction": true,
+    "footage_full_review": "not performed; official screenshots inspected for 12 candidates",
+    "rights_check_before_production": "pending exact source/kit review",
+    "latest_official_news": [
+      {
+        "title": "The Neowsletter - October 2026",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302236888",
+        "date": 1793323498,
+        "feedname": "steam_community_announcements"
+      }
+    ]
+  },
+  {
+    "name": "Factorio",
+    "slug": "factorio",
+    "appid": 427520,
+    "primary_brand": "NextLoot",
+    "priority_editorial": "B",
+    "reason": "Interés establecido y noticia oficial reciente. Mostrar una cadena o un atasco, no un mapa indescifrable.",
+    "draft_hook_requires_shot_verification": "Your entire factory is waiting for one missing part.",
+    "current_players_snapshot": 24748,
+    "retrieved_utc": "2026-10-31T18:44:42.924546+00:00",
+    "store_url": "https://store.steampowered.com/app/427520/",
+    "release": {
+      "coming_soon": false,
+      "date": "Aug 14, 2020"
+    },
+    "co_op_features": [
+      "Co-op",
+      "Online Co-op",
+      "LAN Co-op"
+    ],
+    "published_history_check": {
+      "eligible": true,
+      "cooldown_days": 21,
+      "next_eligible_date": null,
+      "conflicts": []
+    },
+    "prepared_week_reservations": [],
+    "priority_is_not_a_view_prediction": true,
+    "footage_full_review": "not performed; official screenshots inspected for 12 candidates",
+    "rights_check_before_production": "pending exact source/kit review",
+    "latest_official_news": [
+      {
+        "title": "Friday Facts #449 - 2.1 Stable",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847286114035936",
+        "date": 1792753249,
+        "feedname": "steam_community_announcements"
+      }
+    ]
+  },
+  {
+    "name": "Project Zomboid",
+    "slug": "project_zomboid",
+    "appid": 108600,
+    "primary_brand": "PartyLoot",
+    "priority_editorial": "B",
+    "reason": "Demanda alta; situaciones de grupo y decisiones claras. Verificar rama/versión si se habla de novedades.",
+    "draft_hook_requires_shot_verification": "The supply run was supposed to be simple.",
+    "current_players_snapshot": 56944,
+    "retrieved_utc": "2026-10-31T18:44:43.044181+00:00",
+    "store_url": "https://store.steampowered.com/app/108600/",
+    "release": {
+      "coming_soon": false,
+      "date": "Nov 8, 2013"
+    },
+    "co_op_features": [
+      "Co-op",
+      "Online Co-op",
+      "Shared/Split Screen Co-op"
+    ],
+    "published_history_check": {
+      "eligible": true,
+      "cooldown_days": 21,
+      "next_eligible_date": null,
+      "conflicts": []
+    },
+    "prepared_week_reservations": [],
+    "priority_is_not_a_view_prediction": true,
+    "footage_full_review": "not performed; official screenshots inspected for 12 candidates",
+    "rights_check_before_production": "pending exact source/kit review",
+    "latest_official_news": [
+      {
+        "title": "Moving on Up: 42.22 Pre-Release",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847286114049399",
+        "date": 1793115901,
+        "feedname": "steam_community_announcements"
+      }
+    ]
+  },
+  {
+    "name": "No Man's Sky",
+    "slug": "no_mans_sky",
+    "appid": 275850,
+    "primary_brand": "NextLoot",
+    "priority_editorial": "A/B",
+    "reason": "Novedad oficial reciente y escala visual; elegir una mecánica nueva concreta en lugar de resumir todo el juego.",
+    "draft_hook_requires_shot_verification": "A new world is not always a safe landing.",
+    "current_players_snapshot": 19804,
+    "retrieved_utc": "2026-10-31T18:44:43.122306+00:00",
+    "store_url": "https://store.steampowered.com/app/275850/",
+    "release": {
+      "coming_soon": false,
+      "date": "Aug 12, 2016"
+    },
+    "co_op_features": [
+      "Co-op",
+      "Online Co-op"
+    ],
+    "published_history_check": {
+      "eligible": true,
+      "cooldown_days": 21,
+      "next_eligible_date": null,
+      "conflicts": []
+    },
+    "prepared_week_reservations": [],
+    "priority_is_not_a_view_prediction": true,
+    "footage_full_review": "not performed; official screenshots inspected for 12 candidates",
+    "rights_check_before_production": "pending exact source/kit review",
+    "latest_official_news": [
+      {
+        "title": "Introducing..No Man's Sky: FORSAKEN",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302231131",
+        "date": 1793196337,
+        "feedname": "steam_community_announcements"
+      }
+    ]
+  },
+  {
+    "name": "Cairn",
+    "slug": "cairn",
+    "appid": 1588550,
+    "primary_brand": "NextLoot",
+    "priority_editorial": "B, experimento visual",
+    "reason": "Menor demanda, pero una decisión de escalada se entiende rápido. No es cooperativo.",
+    "draft_hook_requires_shot_verification": "The next handhold is a decision, not a decoration.",
+    "current_players_snapshot": 1847,
+    "retrieved_utc": "2026-10-31T18:44:44.038269+00:00",
+    "store_url": "https://store.steampowered.com/app/1588550/",
+    "release": {
+      "coming_soon": false,
+      "date": "Jan 29, 2026"
+    },
+    "co_op_features": [],
+    "published_history_check": {
+      "eligible": true,
+      "cooldown_days": 21,
+      "next_eligible_date": null,
+      "conflicts": []
+    },
+    "prepared_week_reservations": [],
+    "priority_is_not_a_view_prediction": true,
+    "footage_full_review": "not performed; official screenshots inspected for 12 candidates",
+    "rights_check_before_production": "pending exact source/kit review",
+    "latest_official_news": [
+      {
+        "title": "Join our screenshot contest",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302239833",
+        "date": 1793383155,
+        "feedname": "steam_community_announcements"
+      }
+    ]
+  },
+  {
+    "name": "The Outlast Trials",
+    "slug": "outlast_trials",
+    "appid": 1304930,
+    "primary_brand": "PartyLoot",
+    "priority_editorial": "B",
+    "reason": "Cooperativo y evento reciente; seleccionar escena apta para el canal y contexto del juego.",
+    "draft_hook_requires_shot_verification": "Which friend keeps the team moving when the plan falls apart?",
+    "current_players_snapshot": 17672,
+    "retrieved_utc": "2026-10-31T18:44:44.188879+00:00",
+    "store_url": "https://store.steampowered.com/app/1304930/",
+    "release": {
+      "coming_soon": false,
+      "date": "Mar 5, 2024"
+    },
+    "co_op_features": [
+      "Co-op",
+      "Online Co-op"
+    ],
+    "published_history_check": {
+      "eligible": true,
+      "cooldown_days": 21,
+      "next_eligible_date": null,
+      "conflicts": []
+    },
+    "prepared_week_reservations": [],
+    "priority_is_not_a_view_prediction": true,
+    "footage_full_review": "not performed; official screenshots inspected for 12 candidates",
+    "rights_check_before_production": "pending exact source/kit review",
+    "latest_official_news": [
+      {
+        "title": "New Update | Geister Limited-Time Event, Community Event, MK-Challenges & More",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1846651706695405",
+        "date": 1792504829,
+        "feedname": "steam_community_announcements"
+      }
+    ]
+  },
+  {
+    "name": "Escape the Backrooms",
+    "slug": "escape_backrooms",
+    "appid": 1943950,
+    "primary_brand": "PartyLoot",
+    "priority_editorial": "B",
+    "reason": "Cooperación y objetivo de escapar legibles; revisar escena nueva, no tratar cualquier parche como gran actualización.",
+    "draft_hook_requires_shot_verification": "Your group found another corridor. That is not the same as finding the exit.",
+    "current_players_snapshot": 5941,
+    "retrieved_utc": "2026-10-31T18:44:44.485751+00:00",
+    "store_url": "https://store.steampowered.com/app/1943950/",
+    "release": {
+      "coming_soon": false,
+      "date": "Oct 23, 2025"
+    },
+    "co_op_features": [
+      "Co-op",
+      "Online Co-op"
+    ],
+    "published_history_check": {
+      "eligible": true,
+      "cooldown_days": 21,
+      "next_eligible_date": null,
+      "conflicts": []
+    },
+    "prepared_week_reservations": [],
+    "priority_is_not_a_view_prediction": true,
+    "footage_full_review": "not performed; official screenshots inspected for 12 candidates",
+    "rights_check_before_production": "pending exact source/kit review",
+    "latest_official_news": [
+      {
+        "title": "The Lost & Found Cosmetics are now Available!",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302234538",
+        "date": 1793276120,
+        "feedname": "steam_community_announcements"
+      }
+    ]
+  },
+  {
+    "name": "HELLDIVERS™ 2",
+    "slug": "helldivers2",
+    "appid": 553850,
+    "primary_brand": "PartyLoot",
+    "priority_editorial": "B",
+    "reason": "Demanda y acción; competencia alta. Necesita un fallo de coordinación legible, no una sucesión genérica de explosiones.",
+    "draft_hook_requires_shot_verification": "The enemy is not the only reason your squad needs a plan.",
+    "current_players_snapshot": 42999,
+    "retrieved_utc": "2026-10-31T18:44:45.521435+00:00",
+    "store_url": "https://store.steampowered.com/app/553850/",
+    "release": {
+      "coming_soon": false,
+      "date": "Feb 8, 2024"
+    },
+    "co_op_features": [
+      "Co-op",
+      "Online Co-op"
+    ],
+    "published_history_check": {
+      "eligible": true,
+      "cooldown_days": 21,
+      "next_eligible_date": null,
+      "conflicts": []
+    },
+    "prepared_week_reservations": [],
+    "priority_is_not_a_view_prediction": true,
+    "footage_full_review": "not performed; official screenshots inspected for 12 candidates",
+    "rights_check_before_production": "pending exact source/kit review",
+    "latest_official_news": [
+      {
+        "title": "Devoid of Liberty: 7.2.2",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302234123",
+        "date": 1793268006,
+        "feedname": "steam_community_announcements"
+      }
+    ]
+  },
+  {
+    "name": "Sons Of The Forest",
+    "slug": "sons_forest",
+    "appid": 1326470,
+    "primary_brand": "PartyLoot",
+    "priority_editorial": "B",
+    "reason": "Supervivencia compartida y demanda; sin actualización reciente fuerte en la muestra oficial recibida.",
+    "draft_hook_requires_shot_verification": "Who builds the shelter while everyone else explores?",
+    "current_players_snapshot": 20805,
+    "retrieved_utc": "2026-10-31T18:44:45.612916+00:00",
+    "store_url": "https://store.steampowered.com/app/1326470/",
+    "release": {
+      "coming_soon": false,
+      "date": "Feb 22, 2024"
+    },
+    "co_op_features": [
+      "Co-op",
+      "Online Co-op"
+    ],
+    "published_history_check": {
+      "eligible": true,
+      "cooldown_days": 21,
+      "next_eligible_date": null,
+      "conflicts": []
+    },
+    "prepared_week_reservations": [],
+    "priority_is_not_a_view_prediction": true,
+    "footage_full_review": "not performed; official screenshots inspected for 12 candidates",
+    "rights_check_before_production": "pending exact source/kit review",
+    "latest_official_news": [
+      {
+        "title": "Unity security update",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1811772772517758",
+        "date": 1759517232,
+        "feedname": "steam_community_announcements"
+      }
+    ]
+  },
+  {
+    "name": "Light No Fire",
+    "slug": "light_no_fire",
+    "appid": 2719590,
+    "primary_brand": "NextLoot",
+    "priority_editorial": "Vigilancia de próximos lanzamientos",
+    "reason": "Aún sin fecha anunciada en la ficha; no presentar disponibilidad, demo o jugadores activos que no estén confirmados.",
+    "draft_hook_requires_shot_verification": "What if the whole planet was the adventure?",
+    "current_players_snapshot": null,
+    "retrieved_utc": "2026-10-31T18:44:45.685804+00:00",
+    "store_url": "https://store.steampowered.com/app/2719590/",
+    "release": {
+      "coming_soon": true,
+      "date": "To be announced"
+    },
+    "co_op_features": [
+      "Co-op",
+      "Online Co-op"
+    ],
+    "published_history_check": {
+      "eligible": true,
+      "cooldown_days": 21,
+      "next_eligible_date": null,
+      "conflicts": []
+    },
+    "prepared_week_reservations": [],
+    "priority_is_not_a_view_prediction": true,
+    "footage_full_review": "not performed; official screenshots inspected for 12 candidates",
+    "rights_check_before_production": "pending exact source/kit review",
+    "latest_official_news": []
+  },
+  {
+    "name": "Content Warning",
+    "slug": "content_warning",
+    "appid": 2881650,
+    "primary_brand": "PartyLoot",
+    "priority_editorial": "C, nicho/experimento",
+    "reason": "Física y grabación social claras; menor demanda actual que R.E.P.O. en esta captura.",
+    "draft_hook_requires_shot_verification": "The filming job gets harder when everyone wants to run.",
+    "current_players_snapshot": 964,
+    "retrieved_utc": "2026-10-31T18:44:46.773358+00:00",
+    "store_url": "https://store.steampowered.com/app/2881650/",
+    "release": {
+      "coming_soon": false,
+      "date": "Apr 1, 2024"
+    },
+    "co_op_features": [
+      "Co-op",
+      "Online Co-op"
+    ],
+    "published_history_check": {
+      "eligible": true,
+      "cooldown_days": 21,
+      "next_eligible_date": null,
+      "conflicts": []
+    },
+    "prepared_week_reservations": [],
+    "priority_is_not_a_view_prediction": true,
+    "footage_full_review": "not performed; official screenshots inspected for 12 candidates",
+    "rights_check_before_production": "pending exact source/kit review",
+    "latest_official_news": [
+      {
+        "title": "Workshop temporarily disabled",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1846651706692572",
+        "date": 1792440530,
+        "feedname": "steam_community_announcements"
+      }
+    ]
+  },
+  {
+    "name": "Lethal Company",
+    "slug": "lethal_company",
+    "appid": 1966720,
+    "primary_brand": "PartyLoot",
+    "priority_editorial": "B/C",
+    "reason": "Buen concepto, pero la última noticia devuelta no es reciente; buscar una razón concreta para recuperarlo.",
+    "draft_hook_requires_shot_verification": "Who carries the scrap, and who watches the way back?",
+    "current_players_snapshot": 4501,
+    "retrieved_utc": "2026-10-31T18:44:46.804612+00:00",
+    "store_url": "https://store.steampowered.com/app/1966720/",
+    "release": {
+      "coming_soon": false,
+      "date": "Oct 23, 2023"
+    },
+    "co_op_features": [
+      "Co-op",
+      "Online Co-op"
+    ],
+    "published_history_check": {
+      "eligible": true,
+      "cooldown_days": 21,
+      "next_eligible_date": null,
+      "conflicts": []
+    },
+    "prepared_week_reservations": [],
+    "priority_is_not_a_view_prediction": true,
+    "footage_full_review": "not performed; official screenshots inspected for 12 candidates",
+    "rights_check_before_production": "pending exact source/kit review",
+    "latest_official_news": [
+      {
+        "title": "Version 80 - The Blooming Update",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1828894815563326",
+        "date": 1775377631,
+        "feedname": "steam_community_announcements"
+      }
+    ]
+  },
+  {
+    "name": "Timberborn",
+    "slug": "timberborn",
+    "appid": 1062090,
+    "primary_brand": "NextLoot",
+    "priority_editorial": "Referencia propia; respetar espera",
+    "reason": "Ya funcionó en el canal. No se repite automáticamente porque aparezca una señal nueva.",
+    "draft_hook_requires_shot_verification": "La escena concreta debe cambiar antes de repetir el juego.",
+    "current_players_snapshot": 5542,
+    "retrieved_utc": "2026-10-31T18:44:47.007734+00:00",
+    "store_url": "https://store.steampowered.com/app/1062090/",
+    "release": {
+      "coming_soon": false,
+      "date": "Mar 12, 2026"
+    },
+    "co_op_features": [],
+    "published_history_check": {
+      "eligible": false,
+      "cooldown_days": 21,
+      "next_eligible_date": "2026-11-07",
+      "conflicts": [
+        {
+          "brand": "NextLoot",
+          "game": "Timberborn",
+          "published_at": "2026-10-17T20:00:00+02:00",
+          "status": "Publicado",
+          "platform": "YouTube",
+          "source": "User-provided Studio report"
+        }
+      ]
+    },
+    "prepared_week_reservations": [],
+    "priority_is_not_a_view_prediction": true,
+    "footage_full_review": "not performed; official screenshots inspected for 12 candidates",
+    "rights_check_before_production": "pending exact source/kit review",
+    "latest_official_news": [
+      {
+        "title": "Patch notes 2026-10-20 (main branch)",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1846651706694118",
+        "date": 1792482848,
+        "feedname": "steam_community_announcements"
+      }
+    ]
+  },
+  {
+    "name": "Valheim",
+    "slug": "valheim",
+    "appid": 892970,
+    "primary_brand": "PartyLoot",
+    "priority_editorial": "Referencia propia; bloqueado por historial",
+    "reason": "Demanda muy alta, pero ya publicado en ambas marcas en octubre.",
+    "draft_hook_requires_shot_verification": "Reservar hasta superar el intervalo por marca.",
+    "current_players_snapshot": 87454,
+    "retrieved_utc": "2026-10-31T18:44:48.017020+00:00",
+    "store_url": "https://store.steampowered.com/app/892970/",
+    "release": {
+      "coming_soon": false,
+      "date": "Sep 9, 2026"
+    },
+    "co_op_features": [
+      "Co-op",
+      "Online Co-op"
+    ],
+    "published_history_check": {
+      "eligible": false,
+      "cooldown_days": 21,
+      "next_eligible_date": "2026-11-13",
+      "conflicts": [
+        {
+          "brand": "PartyLoot",
+          "game": "Valheim",
+          "date": "2026-10-23",
+          "status": "Publicado",
+          "platform": "YouTube",
+          "source": "User-provided Studio report; exact time not provided"
+        }
+      ]
+    },
+    "prepared_week_reservations": [],
+    "priority_is_not_a_view_prediction": true,
+    "footage_full_review": "not performed; official screenshots inspected for 12 candidates",
+    "rights_check_before_production": "pending exact source/kit review",
+    "latest_official_news": [
+      {
+        "title": "Patch 1.0.21",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302230913",
+        "date": 1793193085,
+        "feedname": "steam_community_announcements"
+      }
+    ]
+  },
+  {
+    "name": "Enshrouded",
+    "slug": "enshrouded",
+    "appid": 1203620,
+    "primary_brand": "NextLoot",
+    "priority_editorial": "Referencia propia; bloqueado por historial",
+    "reason": "Demanda alta y encaje claro; el historial y las reservas mandan.",
+    "draft_hook_requires_shot_verification": "No usar una tendencia como excepción automática a los 21 días.",
+    "current_players_snapshot": 84744,
+    "retrieved_utc": "2026-10-31T18:44:48.017020+00:00",
+    "store_url": "https://store.steampowered.com/app/1203620/",
+    "release": {
+      "coming_soon": false,
+      "date": "Oct 15, 2026"
+    },
+    "co_op_features": [
+      "Co-op",
+      "Online Co-op"
+    ],
+    "published_history_check": {
+      "eligible": false,
+      "cooldown_days": 21,
+      "next_eligible_date": "2026-11-11",
+      "conflicts": [
+        {
+          "brand": "NextLoot",
+          "game": "Enshrouded",
+          "published_at": "2026-10-21T20:00:00+02:00",
+          "status": "Publicado",
+          "platform": "YouTube",
+          "source": "User-provided Studio report"
+        }
+      ]
+    },
+    "prepared_week_reservations": [],
+    "priority_is_not_a_view_prediction": true,
+    "footage_full_review": "not performed; official screenshots inspected for 12 candidates",
+    "rights_check_before_production": "pending exact source/kit review",
+    "latest_official_news": [
+      {
+        "title": "Enshrouded is Steam Deck verified!",
+        "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847286114036918",
+        "date": 1792769833,
+        "feedname": "steam_community_announcements"
+      }
+    ]
+  },
+  {
+    "name": "BELTFED",
+    "primary_brand": "NextLoot",
+    "priority_editorial": "A/B, próximo lanzamiento",
+    "store_url": "https://www.hoodedhorse.com/games/beltfed",
+    "release": {
+      "coming_soon": true,
+      "date": "2027"
+    },
+    "current_players_snapshot": null,
+    "reason": "Factory-defense concept and strong official trailer reach; do not treat lifetime views/hour as current growth.",
+    "official_video": "https://www.youtube.com/watch?v=PgtVNjZYmZU",
+    "youtube_views_snapshot": 694423,
+    "video_age_hours_snapshot": 533.9,
+    "rights_policy": "https://www.hoodedhorse.com/influencers",
+    "footage_full_review": "pending"
+  }
+]

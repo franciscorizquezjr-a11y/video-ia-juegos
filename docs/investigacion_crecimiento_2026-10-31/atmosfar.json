@@ -1,0 +1,59 @@
+{
+  "slug": "atmosfar",
+  "appid": 1798230,
+  "store_url": "https://store.steampowered.com/app/1798230/",
+  "research_date_madrid": "2026-10-31",
+  "retrieved_utc": "2026-10-31T18:44:41.915379+00:00",
+  "name": "ATMOSFAR",
+  "current_players": 1890,
+  "players_raw": {
+    "response": {
+      "player_count": 1890,
+      "result": 1
+    }
+  },
+  "errors": [
+    "reviews:JSONDecodeError"
+  ],
+  "release_date": {
+    "coming_soon": false,
+    "date": "Oct 29, 2026"
+  },
+  "features": [
+    "Single-player",
+    "Multi-player",
+    "Co-op",
+    "Online Co-op",
+    "Full controller support",
+    "Steam Cloud",
+    "Family Sharing"
+  ],
+  "publisher": [
+    "SHUEISHA GAMES"
+  ],
+  "website": "https://www.atmosfar.game/",
+  "official_news": [
+    {
+      "title": "Minor update: ATMOSFAR EA 1.0-6",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302242171",
+      "date": 1793454340,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "ATMOSFAR EA 1.0-5 released",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302240173",
+      "date": 1793388608,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "ATMOSFAR EA 1.0-4 released and performance inquiries",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302236389",
+      "date": 1793307783,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    }
+  ],
+  "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+}

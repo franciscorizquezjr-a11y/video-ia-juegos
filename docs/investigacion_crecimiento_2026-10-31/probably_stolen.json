@@ -1,0 +1,62 @@
+{
+  "slug": "probably_stolen",
+  "appid": 4348910,
+  "store_url": "https://store.steampowered.com/app/4348910/",
+  "research_date_madrid": "2026-10-31",
+  "retrieved_utc": "2026-10-31T18:44:38.605965+00:00",
+  "name": "Probably Stolen - Cyberpunk Shopkeeper Sim",
+  "current_players": 82601,
+  "players_raw": {
+    "response": {
+      "player_count": 82601,
+      "result": 1
+    }
+  },
+  "errors": [
+    "reviews:JSONDecodeError"
+  ],
+  "release_date": {
+    "coming_soon": false,
+    "date": "Oct 28, 2026"
+  },
+  "features": [
+    "Single-player",
+    "Steam Achievements",
+    "Adjustable Text Size",
+    "Custom Volume Controls",
+    "Mouse Only Option",
+    "#category_playable_at_your_own_pace",
+    "Playable without Timed Input",
+    "Stereo Sound",
+    "Steam Cloud",
+    "Family Sharing"
+  ],
+  "publisher": [
+    "tinyBuild"
+  ],
+  "website": null,
+  "official_news": [
+    {
+      "title": "Modding Security Update - 1.0.0.6",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302241521",
+      "date": 1793433679,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "Hotfix & Bell Hotkey Rebind - 1.0.0.5",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302240176",
+      "date": 1793388689,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    },
+    {
+      "title": "500,000 Shopkeepers have settled on the Lower Levels!",
+      "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1847920302240084",
+      "date": 1793386790,
+      "feedname": "steam_community_announcements",
+      "feedlabel": "Community Announcements"
+    }
+  ],
+  "note": "Compact factual evidence; full marketing copy and news bodies are not reproduced."
+}
