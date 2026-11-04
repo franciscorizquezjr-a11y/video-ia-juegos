@@ -34,6 +34,18 @@ FFPROBE_CMD = shutil.which("ffprobe") or "ffprobe"
 GEMINI_FILE_PROCESSING_TIMEOUT_S = 300.0
 GEMINI_HTTP_TIMEOUT_MS = 300_000
 
+
+def _gemini_env_seconds(name: str, default_seconds: float) -> float:
+    """Optional .env override shared with llm.py (seconds; 0 = no limit; invalid -> default)."""
+    raw = (os.environ.get(name) or "").strip()
+    if not raw:
+        return float(default_seconds)
+    try:
+        value = float(raw)
+    except ValueError:
+        return float(default_seconds)
+    return value if value >= 0 else float(default_seconds)
+
 # Final master: social platforms normalise to roughly -14 LUFS; -1 dBTP leaves room
 # for the AAC encoder and the platforms' own transcoding.
 MASTER_LOUDNESS_I = -14.0
@@ -1280,9 +1292,12 @@ def _make_genai_client(api_key: str) -> Any:
     """Create a google-genai client with an HTTP timeout when the installed SDK supports it."""
     from google import genai
 
+    timeout_ms = int(_gemini_env_seconds("GEMINI_HTTP_TIMEOUT", GEMINI_HTTP_TIMEOUT_MS / 1000.0) * 1000)
+    if timeout_ms <= 0:
+        return genai.Client(api_key=api_key)  # GEMINI_HTTP_TIMEOUT=0: no HTTP limit
     try:
         from google.genai import types
-        return genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=GEMINI_HTTP_TIMEOUT_MS))
+        return genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=timeout_ms))
     except (TypeError, ValueError, AttributeError, ImportError) as exc:
         # Older SDKs lack http_options/timeout: keep working without the timeout.
         logger.debug("google-genai sin soporte de timeout HTTP (%s); se usa el cliente por defecto.", exc)
@@ -1411,7 +1426,8 @@ def analyze_single_batch_gemini(
             uploaded_files.append(f_obj)
             # Wait until active, but never forever: a clip stuck in PROCESSING aborts
             # the batch with a clear message (the finally block deletes uploads).
-            processing_deadline = time.monotonic() + GEMINI_FILE_PROCESSING_TIMEOUT_S
+            processing_limit = _gemini_env_seconds("GEMINI_FILE_PROCESSING_TIMEOUT", GEMINI_FILE_PROCESSING_TIMEOUT_S)
+            processing_deadline = time.monotonic() + processing_limit if processing_limit > 0 else None
             while True:
                 f_obj = _call_gemini_file_api_with_retry(
                     lambda: client.files.get(name=f_obj.name),
@@ -1420,11 +1436,12 @@ def analyze_single_batch_gemini(
                 )
                 if f_obj.state.name != "PROCESSING":
                     break
-                if time.monotonic() >= processing_deadline:
+                if processing_deadline is not None and time.monotonic() >= processing_deadline:
                     raise TimeoutError(
                         f"[Lote {batch['batch_id']}] Gemini no terminó de procesar el clip #{sid} "
-                        f"en {GEMINI_FILE_PROCESSING_TIMEOUT_S:.0f}s. Vuelve a ejecutar el Paso 2; "
-                        "si persiste, revisa la conexión o el estado de Gemini."
+                        f"en {processing_limit:.0f}s. Vuelve a ejecutar el Paso 2; "
+                        "si persiste, revisa la conexión o el estado de Gemini "
+                        "(límite configurable con GEMINI_FILE_PROCESSING_TIMEOUT en .env)."
                     )
                 time.sleep(1.0)
 
@@ -4014,10 +4031,23 @@ def render_promov3_final_video(
                 eleven_key = (cfg.elevenlabs_api_key or os.environ.get("ELEVENLABS_API_KEY", "")).strip()
                 voice_id = (cfg.elevenlabs_voice_id or os.environ.get("ELEVENLABS_VOICE_ID", "TX3LPaxmHKxFdv7VOQHJ")).strip()
 
+                # Measure with the same voice settings as the final narration (step 3).
+                s1_voice_kwargs: Dict[str, float] = {}
+                if session_id:
+                    try:
+                        s3_path = Path(__file__).resolve().parent / "temp" / "v3_cache" / str(session_id) / "step3_script.json"
+                        if s3_path.is_file():
+                            s3_voice = json.loads(s3_path.read_text(encoding="utf-8")) or {}
+                            for key in ("speed", "stability", "similarity_boost"):
+                                if s3_voice.get(key) is not None:
+                                    s1_voice_kwargs[key] = float(s3_voice[key])
+                    except Exception as s3_err:
+                        logger.debug(f"Sin ajustes de voz del paso 3 para medir la primera frase: {s3_err}")
                 s1_dur = get_standalone_sentence_1_duration(
                     script_text=script_txt,
                     api_key=eleven_key,
-                    voice_id=voice_id
+                    voice_id=voice_id,
+                    **s1_voice_kwargs,
                 )
                 if s1_dur > 0.5:
                     target_hook_end = round(s1_dur, 3)

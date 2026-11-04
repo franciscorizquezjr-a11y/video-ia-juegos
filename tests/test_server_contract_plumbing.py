@@ -35,8 +35,13 @@ class HelperTests(unittest.TestCase):
         # Already present (case/punctuation-insensitive): not duplicated.
         self.assertEqual(server._apply_spoken_opening("trapster found this gem! " + body, "custom", "Trapster found this gem."),
                          "trapster found this gem! " + body)
-        # custom without text behaves like direct
-        self.assertEqual(server._apply_spoken_opening(body, "custom", ""), body)
+        # custom without text falls back to the default Steam opener, the same rule as
+        # script_retention.resolve_hook_type (script, splash and captions stay consistent).
+        self.assertTrue(server._apply_spoken_opening(body, "custom", "").lower().startswith("here's a new steam game"))
+        self.assertEqual(server._effective_hook_type("custom", ""), "steam_new_game")
+        self.assertEqual(server._effective_hook_type("custom", "Campaign line."), "custom")
+        self.assertEqual(server._effective_hook_type("direct", ""), "direct")
+        self.assertEqual(server._effective_hook_type(None), "steam_new_game")
 
     def test_splash_only_for_steam_style_openers(self):
         self.assertTrue(server._uses_steam_splash("steam_new_game"))

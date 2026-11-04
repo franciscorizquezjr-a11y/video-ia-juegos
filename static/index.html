@@ -4387,11 +4387,13 @@
                 <div class="form-group">
                     <label class="form-label">Groq API Key (Recomendada para Ganchos Rápidos)</label>
                     <input type="password" id="cfgGroqKey" class="form-input" placeholder="gsk_...">
+                    <button type="button" class="btn btn-secondary btn-sm api-key-clear-btn" id="cfgGroqKeyClear" data-clear-key="groq_api_key" data-clear-endpoint="/api/config" style="display: none; margin-top: 6px; padding: 3px 10px; font-size: 11px;" title="Vacía esta clave en .env (las demás se conservan)">🗑️ Borrar clave guardada</button>
                 </div>
 
                 <div class="form-group">
                     <label class="form-label">Gemini API Key (Google AI Studio)</label>
                     <input type="password" id="cfgGeminiKey" class="form-input" placeholder="AIzaSy...">
+                    <button type="button" class="btn btn-secondary btn-sm api-key-clear-btn" id="cfgGeminiKeyClear" data-clear-key="gemini_api_key" data-clear-endpoint="/api/config" style="display: none; margin-top: 6px; padding: 3px 10px; font-size: 11px;" title="Vacía esta clave en .env (las demás se conservan)">🗑️ Borrar clave guardada</button>
                 </div>
 
                 <div class="form-group">
@@ -4402,6 +4404,7 @@
                         </button>
                     </div>
                     <input type="password" id="cfgElevenKey" class="form-input" placeholder="...">
+                    <button type="button" class="btn btn-secondary btn-sm api-key-clear-btn" id="cfgElevenKeyClear" data-clear-key="elevenlabs_api_key" data-clear-endpoint="/api/config" style="display: none; margin-top: 6px; padding: 3px 10px; font-size: 11px;" title="Vacía esta clave en .env (las demás se conservan)">🗑️ Borrar clave guardada</button>
                 </div>
 
                 <div class="form-group">
@@ -5015,6 +5018,7 @@
                                             <span id="toggleScrapeKeyIcon">👁️</span>
                                         </button>
                                     </div>
+                                    <button type="button" class="btn btn-secondary btn-sm api-key-clear-btn" id="inputScrapeCreatorsKeyClear" data-clear-key="scrapecreators_api_key" data-clear-endpoint="/api/gamedev/settings" style="display: none; margin-top: 6px; padding: 3px 10px; font-size: 11px;" title="Vacía esta clave en .env (las demás se conservan)">🗑️ Borrar clave guardada</button>
                                     <span class="settings-hint">
                                         Consigue tu clave en <a href="https://scrapecreators.com" target="_blank" rel="noopener noreferrer" class="link-scrapecreators">scrapecreators.com</a>. Si no la configuras, se utilizan datos realistas simulados.
                                     </span>
@@ -5037,6 +5041,7 @@
                                             <span id="toggleSteamKeyIcon">👁️</span>
                                         </button>
                                     </div>
+                                    <button type="button" class="btn btn-secondary btn-sm api-key-clear-btn" id="inputSteamworksKeyClear" data-clear-key="steamworks_api_key" data-clear-endpoint="/api/gamedev/settings" style="display: none; margin-top: 6px; padding: 3px 10px; font-size: 11px;" title="Vacía esta clave en .env (las demás se conservan)">🗑️ Borrar clave guardada</button>
                                     <span class="settings-hint">
                                         Obtén tu clave de desarrollador en <a href="https://partner.steamgames.com" target="_blank" rel="noopener noreferrer" class="link-scrapecreators">partner.steamgames.com</a> (Usuarios y permisos > Claves de Web API). Para sincronizar wishlists automáticamente por API, Valve requiere que la clave pertenezca a un <em>Financial API Group</em>. Si tu clave no tiene ese rol, puedes editar tus wishlists directamente en la pestaña de Steam Impact (botón ✏️).
                                     </span>
@@ -7621,7 +7626,7 @@
     <!-- Toast Container -->
     <div id="toastContainer" class="toast-container"></div>
 
-    <script src="/static/app.js?v=4.6.0-options"></script>
+    <script src="/static/app.js?v=4.6.1-integration"></script>
     <script src="/static/api_usage.js?v=1"></script>
     <script src="/static/setup_scenes.js?v=1"></script>
     <script src="/static/schedule.js?v=1.1.1"></script>

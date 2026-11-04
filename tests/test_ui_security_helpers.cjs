@@ -149,6 +149,15 @@ function makeContext(extra = {}) {
     await sctx.testElevenLabsVoices();
     const voicesReq = requests.filter(r => r.url.startsWith('/api/elevenlabs/voices')).at(-1);
     assert.equal(voicesReq.url, '/api/elevenlabs/voices');
+    // A typed, unsaved key can still be tested: it goes in a POST body, never the URL.
+    assert.equal(voicesReq.method, 'POST');
+    assert.deepEqual(voicesReq.body, { api_key: 'sk_typed_but_unsaved' });
+    // Without a typed key the saved server key is used (plain GET, no key sent).
+    sctx.elements.get('cfgElevenKey').value = '';
+    await sctx.testElevenLabsVoices();
+    const savedKeyReq = requests.filter(r => r.url.startsWith('/api/elevenlabs/voices')).at(-1);
+    assert.equal(savedKeyReq.method, 'GET');
+    assert.equal(savedKeyReq.body, null);
     assert.doesNotMatch(source, /api_key=\$\{/, 'no API key query strings');
 
     // ---------------------------------------------------------------- endpoints / html

@@ -4050,6 +4050,7 @@ let activeElevenVoiceFilter = 'all';
 function initSettingsTab() {
     const btnSave = document.getElementById('btnSaveConfig');
     if (btnSave) btnSave.addEventListener('click', saveSettings);
+    bindApiKeyClearButtons(document);
 
     const btnTest = document.getElementById('btnTestElevenVoices');
     if (btnTest) btnTest.addEventListener('click', () => testElevenLabsVoices(false));
@@ -4184,6 +4185,45 @@ function applyMaskedApiKeyField(inputId, rawOrMasked, isSet) {
         ? `Guardada ${masked || '••••'} · escribe una nueva para cambiarla`
         : ((input.dataset && input.dataset.defaultPlaceholder) || '');
     if (input.dataset) input.dataset.keySaved = saved ? 'true' : 'false';
+    // Optional "Borrar clave guardada" button: visible only when a key is saved.
+    const clearBtn = document.getElementById(`${inputId}Clear`);
+    if (clearBtn && clearBtn.style) clearBtn.style.display = saved ? '' : 'none';
+}
+
+// Empty fields never erase a saved key (they mean "keep it"); this explicit action
+// does, through the server's clear_keys option.
+async function clearSavedApiKey(field, endpoint = '/api/config') {
+    if (!field) return;
+    if (typeof confirm === 'function' && !confirm('¿Borrar esta clave guardada en .env? Podrás escribir otra cuando quieras.')) return;
+    try {
+        const res = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ clear_keys: [field] }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            const detail = typeof data.detail === 'string' ? data.detail : '';
+            throw new Error(detail || `HTTP ${res.status}`);
+        }
+        showToast('Clave borrada de .env', 'success');
+        if (endpoint === '/api/gamedev/settings') {
+            if (typeof loadGamedevSettings === 'function') await loadGamedevSettings();
+        } else {
+            await loadSettings();
+        }
+    } catch (e) {
+        showToast('No se pudo borrar la clave: ' + (e && e.message ? e.message : e), 'error');
+    }
+}
+
+function bindApiKeyClearButtons(root = document) {
+    const buttons = root && typeof root.querySelectorAll === 'function' ? root.querySelectorAll('.api-key-clear-btn') : [];
+    Array.from(buttons || []).forEach(btn => {
+        if (!btn || (btn.dataset && btn.dataset.clearBound === 'true')) return;
+        if (btn.dataset) btn.dataset.clearBound = 'true';
+        btn.addEventListener('click', () => clearSavedApiKey(btn.dataset.clearKey, btn.dataset.clearEndpoint || '/api/config'));
+    });
 }
 
 function buildConfigSavePayload() {
@@ -4241,10 +4281,9 @@ async function saveSettings() {
 }
 
 async function testElevenLabsVoices(forceRefresh = false) {
-    // The key never travels in the URL: the server uses the key saved in .env.
-    if (typedApiKeyValue('cfgElevenKey')) {
-        showToast('Se comprueba la clave guardada en el servidor. Pulsa «Guardar» para usar la clave nueva que has escrito.', 'info', 7000);
-    }
+    // The key never travels in the URL. A key typed (not yet saved) is tested by
+    // sending it in a POST body; otherwise the server uses the key saved in .env.
+    const typedElevenKey = typedApiKeyValue('cfgElevenKey');
 
     const btnTest = document.getElementById('btnTestElevenVoices');
     const originalBtnHtml = btnTest ? btnTest.innerHTML : '';
@@ -4254,7 +4293,13 @@ async function testElevenLabsVoices(forceRefresh = false) {
     }
 
     try {
-        const res = await fetch('/api/elevenlabs/voices');
+        const res = typedElevenKey
+            ? await fetch('/api/elevenlabs/voices', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ api_key: typedElevenKey }),
+            })
+            : await fetch('/api/elevenlabs/voices');
         const data = await res.json();
 
         if (!res.ok || data.status === 'error') {
@@ -5925,10 +5970,16 @@ async function loadGameInsights(gameId) {
 
         state.gamedev.insightsData = data.insights || [];
         state.gamedev.insightsSummary = data.summary || null;
+        state.gamedev.insightsSimulated = Boolean(data.simulated);
 
         renderInsightsKPIs(data.summary);
         renderInsightsChart(data.insights, data.accent_color);
         renderInsightsTable(data.insights);
+        if (data.simulated) {
+            // Demo metrics for a new profile: shown for orientation, never saved.
+            const elRowCount = document.getElementById('insightsRowsCount');
+            if (elRowCount) elRowCount.textContent = `${elRowCount.textContent} · Datos de demostración (no guardados)`;
+        }
     } catch (err) {
         console.error('Error cargando insights:', err);
         showToast('Error cargando métricas del juego', 'error');
@@ -9631,7 +9682,9 @@ async function modifyPromosV2ScriptLength(action, customInstruction = '') {
                 action: action,
                 game_name: gameName,
                 target_duration: 30.0,
-                custom_instruction: customInstruction
+                custom_instruction: customInstruction,
+                // Keep the chosen opening (custom phrase / direct) when modifying.
+                ...promosHookFields(),
             })
         });
         const data = await res.json();
@@ -13977,6 +14030,9 @@ async function modifyPromoV3Script(action, customInstruction = '') {
                 game_name: gameName,
                 target_duration: targetDur,
                 custom_instruction: customInstruction,
+                // Keep the chosen opening (custom phrase / direct) and the voice speed.
+                ...promoV3HookFields(),
+                speech_speed: promoV3VoiceSpeed(),
             }),
         });
 

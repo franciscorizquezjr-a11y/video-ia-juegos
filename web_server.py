@@ -774,6 +774,14 @@ class V2ScriptModifyRequest(BaseModel):
     custom_instruction: Optional[str] = ""
     groq_api_key: Optional[str] = None
     gemini_api_key: Optional[str] = None
+    # Optional opening options (same values as V2ScriptGenerateRequest). None keeps the
+    # current modification prompts; "custom" keeps opening_text as the first words and
+    # "direct" avoids formulaic openers. speech_speed sizes "regenerate" (None -> 1.1).
+    hook_type: Optional[str] = None
+    opening_text: Optional[str] = ""
+    speech_speed: Optional[float] = None
+    script_mode: Literal["normal", "caveman"] = "normal"
+    game_genre: str = ""
 
 
 class PromoV3Step3SaveRequest(BaseModel):
@@ -1628,6 +1636,20 @@ def get_elevenlabs_voices(api_key: Optional[str] = Query(None)):
             status_code=500,
             content={"status": "error", "message": f"Error interno consultando ElevenLabs: {str(e)}"}
         )
+
+
+class ElevenLabsVoicesRequest(BaseModel):
+    api_key: Optional[str] = None
+
+
+@app.post("/api/elevenlabs/voices")
+def post_elevenlabs_voices(req: Optional[ElevenLabsVoicesRequest] = None):
+    """Same as GET /api/elevenlabs/voices, with the key in the JSON body instead of the URL.
+
+    Lets the Settings tab test a key the user just typed before saving it; an empty or
+    masked key falls back to the server-side .env key.
+    """
+    return get_elevenlabs_voices(api_key=(req.api_key if req else None))
 
 
 @app.post("/api/elevenlabs/test-speech")
@@ -3341,8 +3363,23 @@ def get_game_steam_impact(game_id: str):
     if not target_game:
         raise HTTPException(status_code=404, detail="Perfil de juego no encontrado.")
         
+    had_insights = bool(target_game.get("insights"))
+    wishlists_before = target_game.get("wishlists_count")
     analysis = _generate_steam_impact_analysis(target_game)
-    _save_gamedev_games(games)
+    # A GET never persists demo data: seeded insights and simulated wishlist totals
+    # are returned for display only (same rule as the insights GET endpoint).
+    if not had_insights:
+        target_game.pop("insights", None)
+        if isinstance(analysis, dict):
+            analysis["simulated_insights"] = True
+    real_steam_data = isinstance(analysis, dict) and bool(analysis.get("has_real_steam_data"))
+    if not real_steam_data:
+        if wishlists_before is None:
+            target_game.pop("wishlists_count", None)
+        else:
+            target_game["wishlists_count"] = wishlists_before
+    if target_game.get("wishlists_count") != wishlists_before:
+        _save_gamedev_games(games)
     return analysis
 
 
@@ -3771,6 +3808,13 @@ def modify_v2_script_endpoint(req: V2ScriptModifyRequest):
         raise HTTPException(status_code=400, detail="El texto del guión está vacío")
 
     try:
+        optional_kwargs, _ = _filter_supported_kwargs(modify_v2_script_length, {
+            "hook_type": (req.hook_type or "").strip() or None,
+            "opening_text": (req.opening_text or "").strip(),
+            "speech_speed": _resolve_speech_speed(req.speech_speed),
+            "script_mode": req.script_mode,
+            "game_genre": req.game_genre or "",
+        })
         res = modify_v2_script_length(
             current_script=req.script_text,
             action=req.action,
@@ -3779,6 +3823,7 @@ def modify_v2_script_endpoint(req: V2ScriptModifyRequest):
             custom_instruction=req.custom_instruction or "",
             groq_api_key=groq_key or "",
             gemini_api_key=gemini_key,
+            **optional_kwargs,
         )
         return {"status": "ok", **res}
     except Exception as e:
@@ -3930,6 +3975,20 @@ def _hook_type_value(hook_type: Any) -> str:
     return (str(hook_type).strip() if hook_type else "") or "steam_new_game"
 
 
+def _effective_hook_type(hook_type: Any, opening_text: Optional[str] = "") -> str:
+    """hook_type actually applied to a script.
+
+    Same rule as script_retention.resolve_hook_type: "custom" without opening_text
+    falls back to the default Steam opener (required by Trapster campaigns), so the
+    spoken opener, the splash and the captions always agree. Other values unchanged.
+    """
+    ht = _hook_type_value(hook_type)
+    if ht == "custom" and not (opening_text or "").strip():
+        logger.warning("hook_type 'custom' sin opening_text: se usa la entrada Steam por defecto.")
+        return "steam_new_game"
+    return ht
+
+
 def _uses_steam_splash(hook_type: Any) -> bool:
     """direct/custom scripts have no spoken Steam prefix: no splash timed to it.
     Unknown legacy values keep the previous behaviour (splash on)."""
@@ -3956,9 +4015,9 @@ def _apply_spoken_opening(script: str, hook_type: Any, opening_text: Optional[st
 
     steam_new_game -> "Here's a new Steam game..." prefix (unchanged behaviour);
     so_in_this_new_game -> "So in this new game, ..." (unchanged behaviour);
-    custom -> starts with opening_text; direct (or custom without text) -> untouched.
+    custom -> starts with opening_text (without text: default Steam opener); direct -> untouched.
     """
-    ht = _hook_type_value(hook_type)
+    ht = _effective_hook_type(hook_type, opening_text)
     clean_script = (script or "").strip()
     if ht == "steam_new_game":
         return ensure_steam_hook_prefix(clean_script)
@@ -3968,8 +4027,6 @@ def _apply_spoken_opening(script: str, hook_type: Any, opening_text: Optional[st
             clean_script = f"So in this new game, {first_char}{clean_script[1:]}" if clean_script else "So in this new game, check out what happens."
         return clean_script
     if ht == "custom":
-        if not (opening_text or "").strip():
-            logger.warning("hook_type 'custom' sin opening_text: se usa el guion tal cual (como 'direct').")
         return _apply_custom_opening(clean_script, opening_text)
     return clean_script
 
@@ -4103,6 +4160,7 @@ def save_promov3_step3_endpoint(req: PromoV3Step3SaveRequest):
         (sess_dir / "step5_result.json").unlink(missing_ok=True)
         (sess_dir / "master_audio.mp3").unlink(missing_ok=True)
         (sess_dir / "silent_video.mp4").unlink(missing_ok=True)
+        (sess_dir / "gameplay_audio.flac").unlink(missing_ok=True)
         vdata = {}
 
     # If voice was not passed in request but previous equivalent voice exists, preserve it
@@ -4313,6 +4371,7 @@ def synthesize_promov3_voice_endpoint(req: PromoV3SynthesizeVoiceRequest):
         (v3_dir / "step5_result.json").unlink(missing_ok=True)
         (v3_dir / "master_audio.mp3").unlink(missing_ok=True)
         (v3_dir / "silent_video.mp4").unlink(missing_ok=True)
+        (v3_dir / "gameplay_audio.flac").unlink(missing_ok=True)
 
         # Synchronize step3_script.json so it matches the synthesized voice
         script_file = v3_dir / "step3_script.json"
@@ -4506,6 +4565,7 @@ def run_promov3_step4_orchestrate(req: PromoV3Step4OrchestrateRequest):
         (v3_dir / "step5_result.json").unlink(missing_ok=True)
         (v3_dir / "master_audio.mp3").unlink(missing_ok=True)
         (v3_dir / "silent_video.mp4").unlink(missing_ok=True)
+        (v3_dir / "gameplay_audio.flac").unlink(missing_ok=True)
 
         from config import AppConfig
         cfg = AppConfig.from_env()
@@ -5033,6 +5093,7 @@ def run_promov3_step5_render(req: PromoV3Step5RenderRequest):
             (v3_dir / "step3_voice.json").unlink(missing_ok=True)
             (v3_dir / "master_audio.mp3").unlink(missing_ok=True)
             (v3_dir / "silent_video.mp4").unlink(missing_ok=True)
+            (v3_dir / "gameplay_audio.flac").unlink(missing_ok=True)
             voice_data = {}
 
     voice_path = None
@@ -7488,7 +7549,7 @@ def process_promo_pipeline(req: PromoProcessRequest):
                 if not clean_script:
                     raise ValueError("Por favor introduce el guión correspondiente al audio de tu vídeo montado para sincronizar los subtítulos.")
 
-                fin_hook_type = _hook_type_value(getattr(req, "hook_type", "steam_new_game"))
+                fin_hook_type = _effective_hook_type(getattr(req, "hook_type", "steam_new_game"), getattr(req, "opening_text", ""))
                 fin_uses_splash = _uses_steam_splash(fin_hook_type)
                 if fin_uses_splash:
                     clean_script = ensure_steam_hook_prefix(clean_script)
@@ -7657,7 +7718,7 @@ def process_promo_pipeline(req: PromoProcessRequest):
                     if not clean_script:
                         raise ValueError("No has subido archivo de voz ni has introducido un guión. Por favor genera o escribe un guión para sintetizar la locución.")
 
-                    hook_type = _hook_type_value(getattr(req, "hook_type", "steam_new_game"))
+                    hook_type = _effective_hook_type(getattr(req, "hook_type", "steam_new_game"), getattr(req, "opening_text", ""))
                     is_steam_hook = (hook_type == "steam_new_game")
 
                     # steam_new_game / so_in_this_new_game: unchanged behaviour.
@@ -7774,7 +7835,9 @@ def process_promo_pipeline(req: PromoProcessRequest):
 
                 # Measure hook duration for Steam Hook overlay (only when a Steam-style
                 # opener is spoken; direct/custom openers keep captions from second 0).
-                v2_uses_splash = _uses_steam_splash(getattr(req, "hook_type", "steam_new_game"))
+                v2_uses_splash = _uses_steam_splash(
+                    _effective_hook_type(getattr(req, "hook_type", "steam_new_game"), getattr(req, "opening_text", ""))
+                )
                 raw_words = alignment.get("words", [])
                 if v2_uses_splash:
                     _, hook_duration = filter_steam_hook_words(raw_words)

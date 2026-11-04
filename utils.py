@@ -1293,8 +1293,20 @@ def modify_v2_script_length(
     custom_instruction: str = "",
     groq_api_key: str = "",
     gemini_api_key: str | None = None,
+    hook_type: str | None = None,
+    opening_text: str = "",
+    speech_speed: float | None = None,
+    script_mode: str = "normal",
+    game_genre: str = "",
 ) -> dict:
-    """Modify an existing V2 promo script in English (shorter, longer, change hook, custom instruction, more viral, regenerate)."""
+    """Modify an existing V2 promo script in English (shorter, longer, change hook, custom instruction, more viral, regenerate).
+
+    Optional opening options (all default to the current behaviour):
+    - hook_type / opening_text: "custom" keeps opening_text as the exact first words of the
+      modified script; "direct" asks for no formulaic opener. Other values leave the
+      modification prompts unchanged. "regenerate" passes them to generate_v2_script.
+    - speech_speed: voice speed used for the regenerated word budget (None = generator default).
+    """
     import requests
     clean_groq_key = groq_api_key.strip().strip('"').strip("'") if groq_api_key else ""
     clean_gemini_key = gemini_api_key.strip().strip('"').strip("'") if gemini_api_key else ""
@@ -1304,6 +1316,23 @@ def modify_v2_script_length(
 
     cur_words = len(current_script.split())
     act = (action or "").lower().strip()
+
+    from script_retention import HOOK_TYPE_CUSTOM, HOOK_TYPE_DIRECT, resolve_hook_type
+    clean_opening = (opening_text or "").strip()
+    opening_mode = resolve_hook_type(hook_type, clean_opening) if hook_type else ""
+    opening_rule = ""
+    if opening_mode == HOOK_TYPE_CUSTOM:
+        safe_opening = clean_opening.replace('"', "'")
+        opening_rule = (
+            f"\nOPENING RULE: The script MUST begin with exactly these words: \"{safe_opening}\". "
+            "Keep them verbatim as the first words, then continue."
+        )
+    elif opening_mode == HOOK_TYPE_DIRECT:
+        opening_rule = (
+            "\nOPENING RULE: Do NOT start with a formulaic opener such as \"Here's a new Steam game\", "
+            "\"So in this new game\", \"Check out this\" or \"Imagine\". The first 3-5 words must already "
+            "state the strongest selling point or payoff."
+        )
 
     if act in ("change_hook", "hook", "new_hook"):
         instruction = (
@@ -1377,6 +1406,16 @@ def modify_v2_script_length(
         )
     else:
         # Regenerate fresh angle
+        regen_kwargs = {}
+        if hook_type:
+            regen_kwargs["hook_type"] = hook_type
+            regen_kwargs["opening_text"] = clean_opening
+        if speech_speed is not None:
+            regen_kwargs["speech_speed"] = speech_speed
+        if script_mode and script_mode != "normal":
+            regen_kwargs["script_mode"] = script_mode
+        if game_genre:
+            regen_kwargs["game_genre"] = game_genre
         return generate_v2_script(
             game_name=game_name,
             target_duration=target_duration,
@@ -1384,7 +1423,11 @@ def modify_v2_script_length(
             briefing_text="",
             groq_api_key=clean_groq_key,
             gemini_api_key=clean_gemini_key,
+            **regen_kwargs,
         )
+
+    if opening_rule:
+        instruction += opening_rule
 
     last_error = None
     script_text = ""
@@ -1465,6 +1508,9 @@ def modify_v2_script_length(
         raise RuntimeError(f"No se pudo modificar el guión: {last_error or 'Error desconocido'}")
 
     script_text = clean_v2_script_text(script_text)
+    if opening_mode in (HOOK_TYPE_CUSTOM, HOOK_TYPE_DIRECT):
+        # Enforce the chosen opening even if the model ignored the rule.
+        script_text = apply_opening(script_text, opening_mode, clean_opening)
     word_count = len(script_text.split())
     est_duration = round(word_count / 2.3, 1)
 
@@ -1500,9 +1546,14 @@ def download_youtube_clip(url: str, start_sec: float, end_sec: float, output_pat
     import subprocess
     import shutil
     import sys
-    
-    # Ensure temp dir exists
-    temp_dir = Path("temp")
+
+    clean_url = str(url or "").strip()
+    if not clean_url.lower().startswith(("http://", "https://")):
+        raise ValueError("La URL de YouTube debe empezar por http:// o https://")
+    url = clean_url
+
+    # Ensure temp dir exists (project-root temp/, independent of the working directory)
+    temp_dir = Path(__file__).resolve().parent / "temp"
     temp_dir.mkdir(exist_ok=True)
     temp_full_path = temp_dir / "yt_download_full.mp4"
     
@@ -1533,7 +1584,7 @@ def download_youtube_clip(url: str, start_sec: float, end_sec: float, output_pat
         cmd_ytdlp += ["--ffmpeg-location", ffmpeg_dir]
     if node_bin:
         cmd_ytdlp += ["--js-runtimes", f"node:{node_bin}"]
-    cmd_ytdlp.append(url)
+    cmd_ytdlp += ["--", url]  # "--": the URL can never be parsed as a yt-dlp option
     
     try:
         result = subprocess.run(cmd_ytdlp, capture_output=True, text=True, timeout=600)
@@ -1551,7 +1602,7 @@ def download_youtube_clip(url: str, start_sec: float, end_sec: float, output_pat
                 cmd_ytdlp_simple += ["--ffmpeg-location", ffmpeg_dir]
             if node_bin:
                 cmd_ytdlp_simple += ["--js-runtimes", f"node:{node_bin}"]
-            cmd_ytdlp_simple.append(url)
+            cmd_ytdlp_simple += ["--", url]
             
             result_simple = subprocess.run(cmd_ytdlp_simple, capture_output=True, text=True, timeout=600)
             if result_simple.returncode != 0:
@@ -2679,10 +2730,9 @@ def generate_game_name_reveal_overlay_video(
         except Exception as e:
             logger.warning(f"Error cargando logo del juego {game_logo_path}: {e}")
 
-    font_dir = "C:\\Windows\\Fonts"
-    fpath = os.path.join(font_dir, "impact.ttf")
-    if not os.path.exists(fpath):
-        fpath = os.path.join(font_dir, "ariblk.ttf")
+    # Impact, then Arial Black (same files as before on Windows); portable fallback elsewhere.
+    from fonts import load_font
+    reveal_font_names = ["impact.ttf", "ariblk.ttf"]
     fsize_base = int(152 * widget_scale * res_scale)
 
     cmd = [
@@ -2768,7 +2818,7 @@ def generate_game_name_reveal_overlay_video(
                 red_draw.rounded_rectangle([(ix0, iy0), (ix1, iy1)], radius=ir, fill=(235, 0, 0, 255))
 
                 fsize = max(10, int(fsize_base * anim_scale))
-                fnt = ImageFont.truetype(fpath, fsize) if os.path.exists(fpath) else ImageFont.load_default()
+                fnt = load_font(reveal_font_names, fsize, bold=True)
                 txt = "GAME NAME"
                 st_w = max(1, int(4 * widget_scale * res_scale * anim_scale))
                 bbox = red_draw.textbbox((0, 0), txt, font=fnt, stroke_width=st_w)
@@ -2776,7 +2826,7 @@ def generate_game_name_reveal_overlay_video(
                 available_w = max(1, ix1 - ix0 - 2 * st_w)
                 if bbox[2] - bbox[0] > available_w:
                     fsize = max(10, int(fsize * available_w / (bbox[2] - bbox[0])))
-                    fnt = ImageFont.truetype(fpath, fsize) if os.path.exists(fpath) else ImageFont.load_default()
+                    fnt = load_font(reveal_font_names, fsize, bold=True)
                     bbox = red_draw.textbbox((0, 0), txt, font=fnt, stroke_width=st_w)
                 tw = bbox[2] - bbox[0]
                 th = bbox[3] - bbox[1]
