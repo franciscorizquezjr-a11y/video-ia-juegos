@@ -16,6 +16,7 @@ import re
 import shutil
 import subprocess
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from project_paths import output_url
 from pathlib import Path
@@ -27,6 +28,40 @@ BASE_DIR = Path(__file__).parent.resolve()
 
 FFMPEG_CMD = shutil.which("ffmpeg") or "ffmpeg"
 FFPROBE_CMD = shutil.which("ffprobe") or "ffprobe"
+
+# Gemini network safety: a clip stuck in PROCESSING or a hung HTTP request must not
+# block Step 2 forever.
+GEMINI_FILE_PROCESSING_TIMEOUT_S = 300.0
+GEMINI_HTTP_TIMEOUT_MS = 300_000
+
+
+def _gemini_env_seconds(name: str, default_seconds: float) -> float:
+    """Optional .env override shared with llm.py (seconds; 0 = no limit; invalid -> default)."""
+    raw = (os.environ.get(name) or "").strip()
+    if not raw:
+        return float(default_seconds)
+    try:
+        value = float(raw)
+    except ValueError:
+        return float(default_seconds)
+    return value if value >= 0 else float(default_seconds)
+
+# Final master: social platforms normalise to roughly -14 LUFS; -1 dBTP leaves room
+# for the AAC encoder and the platforms' own transcoding.
+MASTER_LOUDNESS_I = -14.0
+MASTER_LOUDNESS_TP = -1.0
+MASTER_LOUDNESS_LRA = 11.0
+# Sample-peak ceiling of the safety limiter after loudnorm (-1.5 dBFS keeps
+# inter-sample peaks under -1 dBTP in practice).
+MASTER_LIMITER_CEILING = 0.841
+# Gameplay ducking keyed by the voice: gameplay_volume stays the base level and the
+# compressor pulls it down further only while the narrator speaks.
+DUCKING_THRESHOLD = 0.04
+DUCKING_RATIO = 8
+DUCKING_ATTACK_MS = 20
+DUCKING_RELEASE_MS = 350
+SUPPORTED_OUTPUT_FPS = (30, 60)
+MIN_SOURCE_FPS_FOR_60 = 50.0
 
 
 def probe_video(video_path: str | Path) -> Dict[str, Any]:
@@ -1253,6 +1288,63 @@ GEMINI_CANDIDATE_MODELS = [
 ]
 
 
+def _make_genai_client(api_key: str) -> Any:
+    """Create a google-genai client with an HTTP timeout when the installed SDK supports it."""
+    from google import genai
+
+    timeout_ms = int(_gemini_env_seconds("GEMINI_HTTP_TIMEOUT", GEMINI_HTTP_TIMEOUT_MS / 1000.0) * 1000)
+    if timeout_ms <= 0:
+        return genai.Client(api_key=api_key)  # GEMINI_HTTP_TIMEOUT=0: no HTTP limit
+    try:
+        from google.genai import types
+        return genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=timeout_ms))
+    except (TypeError, ValueError, AttributeError, ImportError) as exc:
+        # Older SDKs lack http_options/timeout: keep working without the timeout.
+        logger.debug("google-genai sin soporte de timeout HTTP (%s); se usa el cliente por defecto.", exc)
+        return genai.Client(api_key=api_key)
+
+
+STRICT_JSON_REMINDER = (
+    "\nIMPORTANTE: tu respuesta anterior no era JSON válido. Devuelve SOLO un objeto JSON válido "
+    "con la clave 'clips' (lista de objetos con clip_id), sin markdown, sin ``` y sin texto adicional."
+)
+
+
+def _parse_model_json(text: Any) -> Any:
+    """Parse a model JSON answer, tolerating markdown fences or text around the object."""
+    if not isinstance(text, str) or not text.strip():
+        return None
+    raw = text.strip()
+    candidates = [raw]
+    fenced = re.search(r"```(?:json)?\s*(.*?)```", raw, re.DOTALL | re.IGNORECASE)
+    if fenced:
+        candidates.append(fenced.group(1).strip())
+    first, last = raw.find("{"), raw.rfind("}")
+    if 0 <= first < last:
+        candidates.append(raw[first:last + 1])
+    for candidate in candidates:
+        try:
+            return json.loads(candidate)
+        except (ValueError, TypeError):
+            continue
+    return None
+
+
+def _extract_clip_evaluations(data: Any) -> Optional[List[Dict[str, Any]]]:
+    """Return the clip list of a Step 2 answer, or None when the answer is unusable."""
+    if isinstance(data, dict):
+        clips = data.get("clips")
+        if isinstance(clips, list):
+            return [c for c in clips if isinstance(c, dict)]
+        for value in data.values():
+            if isinstance(value, list) and value and all(isinstance(c, dict) and "clip_id" in c for c in value):
+                return value
+        return None
+    if isinstance(data, list) and all(isinstance(c, dict) for c in data):
+        return data
+    return None
+
+
 def _call_gemini_file_api_with_retry(
     operation: Callable[[], Any],
     description: str,
@@ -1332,7 +1424,10 @@ def analyze_single_batch_gemini(
             )
             # Track immediately so a failed status request still triggers cleanup.
             uploaded_files.append(f_obj)
-            # Wait until active
+            # Wait until active, but never forever: a clip stuck in PROCESSING aborts
+            # the batch with a clear message (the finally block deletes uploads).
+            processing_limit = _gemini_env_seconds("GEMINI_FILE_PROCESSING_TIMEOUT", GEMINI_FILE_PROCESSING_TIMEOUT_S)
+            processing_deadline = time.monotonic() + processing_limit if processing_limit > 0 else None
             while True:
                 f_obj = _call_gemini_file_api_with_retry(
                     lambda: client.files.get(name=f_obj.name),
@@ -1341,6 +1436,13 @@ def analyze_single_batch_gemini(
                 )
                 if f_obj.state.name != "PROCESSING":
                     break
+                if processing_deadline is not None and time.monotonic() >= processing_deadline:
+                    raise TimeoutError(
+                        f"[Lote {batch['batch_id']}] Gemini no terminó de procesar el clip #{sid} "
+                        f"en {processing_limit:.0f}s. Vuelve a ejecutar el Paso 2; "
+                        "si persiste, revisa la conexión o el estado de Gemini "
+                        "(límite configurable con GEMINI_FILE_PROCESSING_TIMEOUT en .env)."
+                    )
                 time.sleep(1.0)
 
             if f_obj.state.name == "FAILED":
@@ -1474,14 +1576,29 @@ def analyze_single_batch_gemini(
                             progress_callback(p, f"[Lote {batch['batch_id']}{suffix}] Analizando clips con modelo '{model_name}'...")
 
                         try:
-                            resp = _api_usage.usage_generate(client.models.generate_content, 
+                            resp = _api_usage.usage_generate(client.models.generate_content,
                                 model=model_name,
                                 contents=prompt_parts,
                                 config=gen_config,
                             )
-                            if resp and resp.text:
-                                data = json.loads(resp.text)
-                                chunk_evaluated = data.get("clips", [])
+                            parsed_clips = _extract_clip_evaluations(_parse_model_json(getattr(resp, "text", None)))
+                            if parsed_clips is None and resp and resp.text:
+                                # Malformed JSON: ask the SAME model once more with a stricter
+                                # instruction before re-sending every clip to the next model.
+                                logger.warning(
+                                    f"[Lote {batch['batch_id']}] '{model_name}' devolvió JSON inválido. "
+                                    "Reintentando una vez con instrucción estricta de JSON..."
+                                )
+                                resp = _api_usage.usage_generate(client.models.generate_content,
+                                    model=model_name,
+                                    contents=list(prompt_parts) + [STRICT_JSON_REMINDER],
+                                    config=gen_config,
+                                )
+                                parsed_clips = _extract_clip_evaluations(_parse_model_json(getattr(resp, "text", None)))
+                                if parsed_clips is None:
+                                    raise ValueError("respuesta JSON inválida incluso tras el reintento estricto")
+                            if parsed_clips is not None:
+                                chunk_evaluated = parsed_clips
                                 if model_name not in models_used:
                                     models_used.append(model_name)
                                 logger.info(f"Inferencia multimodal exitosa en Lote {batch['batch_id']} (sub-lote {c_idx+1}/{total_chunks}) con modelo '{model_name}'")
@@ -1786,13 +1903,11 @@ def analyze_clip_batches_gemini(
     Evaluates early-stopping sufficiency after each batch using a Judge LLM (Groq first,
     fallback to Gemini), allowing the pipeline to stop early and save processing time and quota.
     """
-    from google import genai
-
     api_key = (gemini_api_key or os.environ.get("GEMINI_API_KEY", "")).strip().strip('"').strip("'")
     if not api_key:
         raise ValueError("GEMINI_API_KEY no está configurada en el entorno o .env")
 
-    client = genai.Client(api_key=api_key)
+    client = _make_genai_client(api_key)
 
     candidate_models = list(GEMINI_CANDIDATE_MODELS)
     if preferred_model and preferred_model in candidate_models:
@@ -2536,6 +2651,175 @@ def _plan_caveman_timeline(shots, raw_cuts, ranges, game_name):
             for index, (sentence, shot) in enumerate(zip(ranges, assignment))]
 
 
+CUT_START_MODES = ("shot_start", "best_moment")
+# Optional per-shot hints (seconds relative to the shot start). Step 2 does not
+# produce them today; they are honoured if a future analysis adds them.
+_SHOT_PEAK_HINT_KEYS = ("best_moment_offset_s", "peak_offset_s")
+_BEST_MOMENT_SAFETY_MARGIN_S = 0.1
+_BEST_MOMENT_MAX_SKIP_S = 1.5
+_BEST_MOMENT_SAMPLE_FPS = 10
+_BEST_MOMENT_W, _BEST_MOMENT_H = 64, 36
+
+
+def _analyze_shot_opening(video_path: Path, start_s: float, window_s: float) -> Optional[Tuple[float, str]]:
+    """Find where usable footage begins inside the first seconds of a shot.
+
+    Samples tiny grayscale frames with FFmpeg and skips leading near-black, near-white
+    or flat frames (fades, flashes, title cards) and a frozen opening followed by
+    motion. Returns (offset_s, reason) relative to start_s, or None when unsure.
+    """
+    import numpy as np
+
+    frame_size = _BEST_MOMENT_W * _BEST_MOMENT_H
+    cmd = [
+        FFMPEG_CMD, "-v", "error", "-nostdin",
+        "-ss", f"{max(0.0, start_s):.3f}", "-i", str(video_path),
+        "-t", f"{max(0.2, window_s):.3f}", "-an",
+        "-vf", f"fps={_BEST_MOMENT_SAMPLE_FPS},scale={_BEST_MOMENT_W}:{_BEST_MOMENT_H}:flags=area,format=gray",
+        "-f", "rawvideo", "-",
+    ]
+    res = subprocess.run(cmd, capture_output=True, check=True, timeout=60)
+    count = len(res.stdout) // frame_size
+    if count < 2:
+        return None
+    frames = np.frombuffer(res.stdout[:count * frame_size], dtype=np.uint8).reshape(count, frame_size).astype(np.float32)
+    means = frames.mean(axis=1)
+    stds = frames.std(axis=1)
+
+    def frame_issue(i: int) -> Optional[str]:
+        if means[i] < 18.0:
+            return "black"
+        if means[i] > 235.0:
+            return "white"
+        if stds[i] < 4.0:
+            return "flat"
+        return None
+
+    first_good = next((i for i in range(count) if frame_issue(i) is None), None)
+    if first_good is None:
+        return None  # The whole window is a fade/card: no evidence of a better start.
+    reasons = []
+    if first_good > 0:
+        reasons.append(f"skip_{frame_issue(0)}_opening")
+    candidate = first_good
+    # Frozen opening followed by motion (e.g. a paused frame before gameplay resumes).
+    diffs = np.abs(np.diff(frames, axis=0)).mean(axis=1)  # diffs[i] = change from frame i to i+1
+    static_end = candidate
+    while static_end < count - 1 and diffs[static_end] < 0.35:
+        static_end += 1
+    if static_end < count - 1 and (static_end - candidate) / _BEST_MOMENT_SAMPLE_FPS >= 0.25:
+        candidate = static_end
+        reasons.append("skip_static_opening")
+    offset = candidate / _BEST_MOMENT_SAMPLE_FPS
+    return offset, "+".join(reasons) if reasons else "shot_start"
+
+
+def _choose_cut_start_offset(
+    shot: Dict[str, Any],
+    cut_duration: float,
+    video_path: Optional[Path],
+) -> Tuple[float, str]:
+    """Offset (s) from the shot start for a 'best_moment' cut, never leaving the shot."""
+    available = _get_shot_available_duration(shot, default=cut_duration)
+    slack = round(available - cut_duration - _BEST_MOMENT_SAFETY_MARGIN_S, 3)
+    if slack < 0.1:
+        return 0.0, "no_slack"
+    for key in _SHOT_PEAK_HINT_KEYS:
+        hint = shot.get(key)
+        if isinstance(hint, (int, float)) and 0.0 <= float(hint) <= available:
+            # Place the peak about a third into the cut so it lands early on screen.
+            offset = min(slack, max(0.0, float(hint) - cut_duration * 0.3))
+            return round(offset, 3), "peak_hint"
+    if not video_path or not Path(video_path).exists():
+        return 0.0, "fallback_no_video"
+    start = float(shot.get("start", shot.get("start_time", 0.0)) or 0.0)
+    window = min(slack, _BEST_MOMENT_MAX_SKIP_S) + 0.3
+    try:
+        found = _analyze_shot_opening(Path(video_path), start, window)
+    except Exception as exc:
+        logger.warning(f"Análisis de inicio del plano #{shot.get('shot_id')} falló ({exc}); se usa el inicio del plano.")
+        return 0.0, "fallback_analysis_failed"
+    if not found:
+        return 0.0, "fallback_uncertain"
+    offset, reason = found
+    offset = round(min(offset, slack, _BEST_MOMENT_MAX_SKIP_S), 3)
+    if offset < 0.1:
+        return 0.0, "shot_start"
+    return offset, reason
+
+
+def _apply_best_moment_starts(timeline: List[Dict[str, Any]], shots_by_id: Dict[Any, Dict[str, Any]], game_name: str = "") -> None:
+    """Shift source_in inside each shot to a better moment; durations and shot order are untouched."""
+    def job(cut: Dict[str, Any]) -> Tuple[float, str]:
+        shot = shots_by_id.get(cut.get("shot_id")) or shots_by_id.get(str(cut.get("shot_id")))
+        if not shot:
+            return 0.0, "fallback_unknown_shot"
+        candidate = cut.get("video_path") or shot.get("video_path") or shot.get("source_video_path")
+        resolved = resolve_promov3_video_path(candidate, game_name=game_name) if candidate else None
+        return _choose_cut_start_offset(shot, float(cut.get("duration", 0.0)), resolved)
+
+    results: List[Tuple[float, str]] = [(0.0, "shot_start")] * len(timeline)
+    with ThreadPoolExecutor(max_workers=min(4, max(1, len(timeline)))) as pool:
+        futures = {pool.submit(job, cut): idx for idx, cut in enumerate(timeline)}
+        for fut in as_completed(futures):
+            idx = futures[fut]
+            try:
+                results[idx] = fut.result()
+            except Exception as exc:
+                logger.warning(f"Best moment: fallo inesperado en el corte #{idx + 1} ({exc}); se usa el inicio del plano.")
+                results[idx] = (0.0, "fallback_analysis_failed")
+    for cut, (offset, reason) in zip(timeline, results):
+        shot_start = float(cut.get("source_in", 0.0))
+        cut["source_offset_s"] = round(offset, 3)
+        cut["source_offset_reason"] = reason
+        if offset > 0:
+            cut["source_in"] = round(shot_start + offset, 3)
+            cut["source_out"] = round(cut["source_in"] + float(cut.get("duration", 0.0)), 3)
+
+
+def _note_best_moment_shot_end(cut: Dict[str, Any], shots_by_id: Dict[Any, Dict[str, Any]]) -> None:
+    """Remember where the shot of a best_moment cut ends before the render re-times it.
+
+    Without the shot catalog, the step 4 source_out is a safe lower bound of the shot end.
+    """
+    offset = float(cut.get("source_offset_s") or 0.0)
+    if offset <= 0.0:
+        return
+    source_in = float(cut.get("source_in", 0.0))
+    shot = shots_by_id.get(cut.get("shot_id")) or shots_by_id.get(str(cut.get("shot_id")))
+    if shot:
+        start = float(shot.get("start", shot.get("start_time", 0.0)) or 0.0)
+        cut["_shot_start_s"] = round(start, 3)
+        cut["_shot_end_s"] = round(start + _get_shot_available_duration(shot, default=0.0), 3)
+    else:
+        cut["_shot_start_s"] = round(source_in - offset, 3)
+        cut["_shot_end_s"] = round(source_in + float(cut.get("duration", 0.0)), 3)
+
+
+def _fit_best_moment_cut_in_shot(cut: Dict[str, Any], needed_s: float) -> None:
+    """Move a best_moment start back (at most to the shot start) when the render needs more
+    footage than step 4 planned, so the cut never runs into the next shot.
+
+    Shot-start cuts are left exactly as they were.
+    """
+    offset = float(cut.get("source_offset_s") or 0.0)
+    shot_end = cut.get("_shot_end_s")
+    if offset <= 0.0 or shot_end is None:
+        return
+    source_in = float(cut.get("source_in", 0.0))
+    overrun = round(source_in + float(needed_s) - float(shot_end), 3)
+    if overrun <= 0.0:
+        return
+    shot_start = float(cut.get("_shot_start_s", source_in - offset))
+    back = max(0.0, min(offset, overrun, round(source_in - shot_start, 3)))
+    if back <= 0.0:
+        return
+    cut["source_in"] = round(source_in - back, 3)
+    cut["source_offset_s"] = round(offset - back, 3)
+    cut["source_out"] = round(cut["source_in"] + float(cut.get("duration", 0.0)), 3)
+    cut["source_offset_reason"] = f"{cut.get('source_offset_reason') or 'best_moment'}+render_refit"
+
+
 def orchestrate_promov3_step4_edl(
     step2_shots: List[Dict[str, Any]],
     script_text: str,
@@ -2553,9 +2837,14 @@ def orchestrate_promov3_step4_edl(
     video_format: str = "full_9_16",
     approved_shot_ids: Optional[List[int]] = None,
     script_mode: str = "normal",
+    cut_start_mode: str = "shot_start",
 ) -> Dict[str, Any]:
     """
     Executes Step 4: AI Creative Director & Sequence Assembly (EDL).
+
+    cut_start_mode: "shot_start" (default, source_in = shot start) or "best_moment"
+    (start inside the shot after fades/flashes/frozen openings, never leaving the shot
+    and keeping every cut duration; falls back to the shot start when unsure).
     
     Orchestrates the analyzed shots from Step 2 to align with the voiceover script from Step 3:
     1. Cut #1 (Hook): Matches exact hook duration, forced transition_out: 'white_flash' (0.15s).
@@ -3005,6 +3294,16 @@ def orchestrate_promov3_step4_edl(
             if "Ajuste fino" in cut.get("director_notes", "") or not cut.get("director_notes") or cut.get("director_notes") == "Plano adicional para cubrir la duración exacta de la locución.":
                 cut["director_notes"] = f"Planificación visual para la locución: \"{real_seg}\""
 
+    resolved_cut_start_mode = (cut_start_mode or "shot_start").strip().lower()
+    if resolved_cut_start_mode not in CUT_START_MODES:
+        logger.warning(f"cut_start_mode desconocido '{cut_start_mode}'; se usa 'shot_start'.")
+        resolved_cut_start_mode = "shot_start"
+    if resolved_cut_start_mode == "best_moment":
+        # Only source_in/source_out move, inside each shot: durations, order and the
+        # unique-shot coverage verified above stay exactly the same.
+        shots_lookup = {s.get("shot_id"): s for s in step2_shots if isinstance(s, dict)}
+        _apply_best_moment_starts(processed_timeline, shots_lookup, game_name=game_name)
+
     actual_total = round(accumulated_time, 2)
     secondary_applied = any(c["transition_out"]["type"] in ["glitch_pixelize", "circle_zoom"] for c in processed_timeline[1:])
 
@@ -3018,6 +3317,7 @@ def orchestrate_promov3_step4_edl(
         "script_text": script_text,
         "director_model": model_evaluator,
         "script_mode": script_mode,
+        "cut_start_mode": resolved_cut_start_mode,
         "secondary_transition_applied": secondary_applied,
         "secondary_transition_reason": edl_raw_data.get("secondary_transition_reason", ""),
         "video_format": video_format,
@@ -3061,9 +3361,11 @@ def get_media_duration(media_path: str | Path) -> float:
         str(media_path),
     ]
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", check=True)
         return float(res.stdout.strip())
-    except Exception:
+    except Exception as exc:
+        # Keep the float contract (callers treat 0.0 as unknown) but never fail silently.
+        logger.warning(f"No se pudo leer la duración de '{media_path}' con ffprobe: {exc}")
         return 0.0
 
 
@@ -3171,10 +3473,15 @@ def resolve_promov3_video_path(
     return None
 
 
-def _run_ffmpeg_cmd(cmd: List[str], desc: str = "Operación FFmpeg") -> subprocess.CompletedProcess:
-    """Executes an FFmpeg command with comprehensive error logging and informative exception messages."""
+def _run_ffmpeg_cmd(cmd: List[str], desc: str = "Operación FFmpeg", cwd: Optional[str | Path] = None) -> subprocess.CompletedProcess:
+    """Executes an FFmpeg command with comprehensive error logging and informative exception messages.
+
+    Output is decoded as UTF-8 with replacement so non-ASCII paths printed by FFmpeg
+    cannot crash the render on Windows code pages.
+    """
     try:
-        return subprocess.run(cmd, capture_output=True, text=True, check=True)
+        return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                              check=True, cwd=str(cwd) if cwd else None)
     except subprocess.CalledProcessError as e:
         err_msg = e.stderr.strip() if e.stderr else (e.stdout.strip() if e.stdout else str(e))
         logger.error(f"{desc} falló (código {e.returncode}):\n{err_msg}")
@@ -3236,6 +3543,388 @@ def _extract_subclip(
     _run_ffmpeg_cmd(cmd, f"Extracción de subclip '{out_path.name}' ({src_video.name})")
 
 
+# -----------------------------------------------------------------------------
+# Render helpers shared by the full render and the fast SFX re-mixer
+# -----------------------------------------------------------------------------
+
+_RENDER_RUN_MARKER = ".promov3_render_run"
+_AUDIO_FMT = "aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo"
+
+
+def _new_render_run_dir(base_dir: Path, session_id: Optional[str]) -> Path:
+    """Unique per-render folder (session + random id) for fixed-name intermediates."""
+    safe = re.sub(r"[^A-Za-z0-9_-]", "_", str(session_id or "render"))[:20] or "render"
+    run_dir = base_dir / f"run_{safe}_{uuid.uuid4().hex[:10]}"
+    run_dir.mkdir(parents=True, exist_ok=False)
+    try:
+        (run_dir / _RENDER_RUN_MARKER).write_text(f"{time.time():.0f}", encoding="utf-8")
+    except OSError:
+        pass
+    return run_dir
+
+
+def _prune_stale_render_runs(base_dir: Path, max_age_s: float = 6 * 3600) -> None:
+    """Remove run folders left by failed renders long ago (only folders this engine marked)."""
+    try:
+        children = list(base_dir.glob("run_*"))
+    except OSError:
+        return
+    now = time.time()
+    for child in children:
+        marker = child / _RENDER_RUN_MARKER
+        try:
+            if child.is_dir() and marker.is_file() and now - marker.stat().st_mtime > max_age_s:
+                shutil.rmtree(child, ignore_errors=True)
+        except OSError:
+            continue
+
+
+def _publish_file(src: Path, dest: Path) -> bool:
+    """Copy src to dest via a temp file + os.replace; fall back to a plain copy (e.g. file open on Windows)."""
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        logger.warning(f"No se pudo preparar la carpeta de '{dest}': {exc}")
+        return False
+    tmp = dest.with_name(f".{dest.stem}.{uuid.uuid4().hex[:8]}.tmp{dest.suffix}")
+    try:
+        shutil.copy2(src, tmp)
+        os.replace(tmp, dest)
+        return True
+    except OSError:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+    try:
+        shutil.copy2(src, dest)
+        return True
+    except OSError as exc:
+        logger.warning(f"No se pudo copiar '{src.name}' a '{dest}': {exc}")
+        return False
+
+
+def _short_error(exc: Any, limit: int = 220) -> str:
+    """Last meaningful line of an (FFmpeg) error, short enough for a UI notice."""
+    lines = [ln.strip() for ln in str(exc).splitlines() if ln.strip()]
+    text = lines[-1] if lines else type(exc).__name__
+    return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
+def _concat_list_entry(path: Path) -> str:
+    """One concat-demuxer line; apostrophes in absolute paths are escaped ('\\'')."""
+    return "file '" + path.resolve().as_posix().replace("'", "'\\''") + "'\n"
+
+
+def _probe_frame_rate(media_path: str | Path) -> float:
+    """Average frame rate of the first video stream (falls back to r_frame_rate); 0.0 if unknown."""
+    cmd = [
+        FFPROBE_CMD, "-v", "error", "-select_streams", "v:0",
+        "-show_entries", "stream=avg_frame_rate,r_frame_rate", "-of", "json", str(media_path),
+    ]
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", check=True)
+        streams = json.loads(res.stdout or "{}").get("streams") or [{}]
+        stream = streams[0]
+    except Exception as exc:
+        logger.warning(f"No se pudo leer la cadencia de '{media_path}': {exc}")
+        return 0.0
+
+    def frac(value: Any) -> float:
+        num, _, den = str(value or "0").partition("/")
+        try:
+            n, d = float(num), float(den) if den else 1.0
+        except ValueError:
+            return 0.0
+        return n / d if d > 0 else 0.0
+
+    avg = frac(stream.get("avg_frame_rate"))
+    return avg if avg > 0 else frac(stream.get("r_frame_rate"))
+
+
+def _resolve_render_fps(requested: Any, sources: List[Path], warnings: List[str]) -> int:
+    """30 or 60 fps; 60 only when every source really has >= 50 fps."""
+    try:
+        fps = int(round(float(requested if requested is not None else 30)))
+    except (TypeError, ValueError):
+        fps = 30
+    if fps not in SUPPORTED_OUTPUT_FPS:
+        warnings.append(f"output_fps={requested} no está soportado (30 o 60); se renderiza a 30 fps.")
+        return 30
+    if fps == 30:
+        return 30
+    rates = {str(p): _probe_frame_rate(p) for p in sources}
+    slowest = min(rates.values()) if rates else 0.0
+    if not rates or slowest < MIN_SOURCE_FPS_FOR_60:
+        detail = f"{slowest:.2f} fps" if slowest > 0 else "cadencia desconocida"
+        warnings.append(f"Se pidió 60 fps pero el metraje de origen tiene {detail}; se renderiza a 30 fps.")
+        return 30
+    return 60
+
+
+def _resolve_sfx_track_path(trk: Dict[str, Any]) -> Optional[Path]:
+    """Find a timeline SFX file under static/sfx (same rules the editor uses)."""
+    sfx_base = BASE_DIR / "static" / "sfx"
+    rel = trk.get("relative_path") or trk.get("file") or trk.get("name") or "raiser1.wav"
+    if not any(rel.endswith(ext) for ext in [".wav", ".mp3", ".mp4", ".ogg", ".flac", ".m4a"]):
+        rel = f"{rel}.wav"
+    sf_path = sfx_base / rel
+    if not sf_path.exists():
+        sf_path = sfx_base / "raisers" / Path(rel).name
+    if not sf_path.exists():
+        matches = list(sfx_base.rglob(Path(rel).name)) if sfx_base.exists() else []
+        if matches:
+            sf_path = matches[0]
+    return sf_path if sf_path.exists() else None
+
+
+def _build_master_mix_filter(has_gameplay: bool, bg_vol: float, sfx_specs: List[Dict[str, Any]], ducking: bool) -> str:
+    """Filtergraph for the master mix. Inputs: 0 = voice, 1 = gameplay (if any), then SFX.
+
+    gameplay_volume is the base gain of the gameplay bed; with ducking it is further
+    compressed by a sidechain keyed by the voice, so it dips only while speech plays.
+    """
+    parts: List[str] = []
+    mix_inputs = ["[v_a]"]
+    duck = bool(ducking and has_gameplay)
+    if duck:
+        parts.append(f"[0:a]{_AUDIO_FMT},volume=1.0,asplit=2[v_a][v_key]")
+    else:
+        parts.append(f"[0:a]{_AUDIO_FMT},volume=1.0[v_a]")
+    next_idx = 1
+    if has_gameplay:
+        if duck:
+            parts.append(f"[1:a]{_AUDIO_FMT},volume={bg_vol:.2f}[g_pre]")
+            parts.append(
+                f"[g_pre][v_key]sidechaincompress=threshold={DUCKING_THRESHOLD}:ratio={DUCKING_RATIO}:"
+                f"attack={DUCKING_ATTACK_MS}:release={DUCKING_RELEASE_MS}:makeup=1[g_a]"
+            )
+        else:
+            parts.append(f"[1:a]{_AUDIO_FMT},volume={bg_vol:.2f}[g_a]")
+        mix_inputs.append("[g_a]")
+        next_idx = 2
+    for n, spec in enumerate(sfx_specs):
+        chain = [_AUDIO_FMT]
+        trim_s = float(spec.get("trim_s", 0.0) or 0.0)
+        start_s = float(spec.get("start_s", 0.0) or 0.0)
+        if trim_s > 0.01:
+            chain.append(f"atrim=start={trim_s:.3f},asetpts=PTS-STARTPTS")
+        if start_s > 0.01:
+            start_ms = int(round(start_s * 1000))
+            chain.append(f"adelay={start_ms}|{start_ms}")
+        chain.append(f"volume={float(spec.get('volume', 0.80)):.2f}")
+        parts.append(f"[{next_idx + n}:a]" + ",".join(chain) + f"[sfx_{n}]")
+        mix_inputs.append(f"[sfx_{n}]")
+    parts.append(f"{''.join(mix_inputs)}amix=inputs={len(mix_inputs)}:duration=first:dropout_transition=0:normalize=0[aout]")
+    return ";".join(parts)
+
+
+def _measure_loudness(audio_path: Path) -> Optional[Dict[str, float]]:
+    """First loudnorm pass: integrated loudness, true peak, LRA and threshold of a file."""
+    cmd = [
+        FFMPEG_CMD, "-hide_banner", "-nostats", "-nostdin", "-i", str(audio_path),
+        "-af", f"loudnorm=I={MASTER_LOUDNESS_I}:TP={MASTER_LOUDNESS_TP}:LRA={MASTER_LOUDNESS_LRA}:print_format=json",
+        "-f", "null", "-",
+    ]
+    res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", check=True)
+    blocks = [b for b in re.findall(r"\{[^{}]*\}", res.stderr or "", re.DOTALL) if "input_i" in b]
+    if not blocks:
+        return None
+    data = json.loads(blocks[-1])
+    values: Dict[str, float] = {}
+    for key in ("input_i", "input_tp", "input_lra", "input_thresh", "target_offset"):
+        try:
+            values[key] = float(data[key])
+        except (KeyError, TypeError, ValueError):
+            return None
+        if not math.isfinite(values[key]):
+            return None
+    if values["input_i"] < -70.0:
+        return None  # Practically silent: nothing meaningful to normalise.
+    return values
+
+
+def _loudnorm_chain(measured: Optional[Dict[str, float]], limiter: bool = True, limiter_latency: bool = True) -> str:
+    """Second loudnorm pass (linear, from measurements) or single-pass dynamic, + peak safety.
+
+    limiter_latency=False drops alimiter's 'latency' option (missing in older FFmpeg builds)."""
+    def clamp(v: float, lo: float, hi: float) -> float:
+        return max(lo, min(hi, v))
+
+    chain = f"loudnorm=I={MASTER_LOUDNESS_I}:TP={MASTER_LOUDNESS_TP}:LRA={MASTER_LOUDNESS_LRA}"
+    if measured:
+        chain += (
+            f":measured_I={clamp(measured['input_i'], -99.0, 0.0):.2f}"
+            f":measured_TP={clamp(measured['input_tp'], -99.0, 99.0):.2f}"
+            f":measured_LRA={clamp(measured['input_lra'], 0.0, 99.0):.2f}"
+            f":measured_thresh={clamp(measured['input_thresh'], -99.0, 0.0):.2f}"
+            f":offset={clamp(measured['target_offset'], -99.0, 99.0):.2f}:linear=true"
+        )
+    # loudnorm works at 192 kHz internally: bring the master back to 48 kHz.
+    chain += ",aresample=48000"
+    if limiter:
+        chain += f",alimiter=limit={MASTER_LIMITER_CEILING}:attack=5:release=50:level=false"
+        if limiter_latency:
+            chain += ":latency=true"
+    return chain
+
+
+def _render_master_audio(
+    voice_path: Path,
+    gameplay_path: Optional[Path],
+    bg_vol: float,
+    sfx_specs: List[Dict[str, Any]],
+    out_wav: Path,
+    work_dir: Path,
+    duration: Optional[float] = None,
+    ducking: bool = True,
+    normalize: bool = True,
+) -> Dict[str, Any]:
+    """Build the master track as lossless WAV: mix -> (two-pass loudnorm + limiter).
+
+    Used by both the full render and the SFX re-mixer so they always sound the same.
+    The AAC encode happens once, in the final mux.
+    """
+    warnings: List[str] = []
+    has_gameplay = bool(gameplay_path) and bg_vol > 0.001
+    inputs = ["-i", str(voice_path)]
+    if has_gameplay:
+        inputs += ["-i", str(gameplay_path)]
+    for spec in sfx_specs:
+        inputs += ["-i", str(spec["path"])]
+    dur_args = ["-t", f"{duration:.3f}"] if duration and duration > 0 else []
+    mix_wav = work_dir / "master_mix.wav"
+
+    def run_mix(duck: bool) -> None:
+        graph = _build_master_mix_filter(has_gameplay, bg_vol, sfx_specs, duck)
+        cmd = [
+            FFMPEG_CMD, "-y", "-nostdin", *inputs,
+            "-filter_complex", graph, "-map", "[aout]",
+            # Float WAV: amix normalize=0 may exceed 0 dBFS before loudnorm; no clipping here.
+            "-c:a", "pcm_f32le", "-ar", "48000", *dur_args, str(mix_wav),
+        ]
+        _run_ffmpeg_cmd(cmd, "Mezcla de pista maestra de audio")
+
+    ducking_applied = bool(ducking and has_gameplay)
+    try:
+        run_mix(ducking_applied)
+    except Exception as exc:
+        if not ducking_applied:
+            raise
+        logger.warning(f"Ducking con sidechaincompress falló ({exc}); se mezcla con volumen fijo.")
+        warnings.append("No se pudo aplicar el ducking del gameplay; se usó volumen fijo.")
+        ducking_applied = False
+        run_mix(False)
+
+    info: Dict[str, Any] = {
+        "ducking_applied": ducking_applied,
+        "normalized": False,
+        "normalization_mode": None,
+        "measured_loudness": None,
+        "warnings": warnings,
+    }
+    if not normalize:
+        os.replace(mix_wav, out_wav)
+        return info
+
+    measured = None
+    try:
+        measured = _measure_loudness(mix_wav)
+    except Exception as exc:
+        logger.warning(f"Medición de sonoridad (pasada 1) falló: {exc}")
+    info["measured_loudness"] = measured
+    # Prefer the measured linear pass; on FFmpeg builds whose alimiter lacks an option, keep
+    # the measured pass with a simpler limiter (or loudnorm's own true-peak control) before
+    # falling back to dynamic single-pass processing.
+    attempts = []
+    if measured:
+        attempts.append(("two_pass", _loudnorm_chain(measured)))
+        attempts.append(("two_pass_compat_limiter", _loudnorm_chain(measured, limiter_latency=False)))
+        attempts.append(("two_pass_no_limiter", _loudnorm_chain(measured, limiter=False)))
+    attempts.append(("single_pass", _loudnorm_chain(None)))
+    attempts.append(("single_pass_compat_limiter", _loudnorm_chain(None, limiter_latency=False)))
+    attempts.append(("single_pass_no_limiter", _loudnorm_chain(None, limiter=False)))
+    for mode, chain in attempts:
+        try:
+            _run_ffmpeg_cmd([
+                FFMPEG_CMD, "-y", "-nostdin", "-i", str(mix_wav), "-af", chain,
+                "-c:a", "pcm_s24le", "-ar", "48000", str(out_wav),
+            ], f"Normalización de sonoridad del máster ({mode})")
+            info["normalized"] = True
+            info["normalization_mode"] = mode
+            break
+        except Exception as exc:
+            logger.warning(f"Normalización '{mode}' falló: {exc}")
+    if not info["normalized"]:
+        warnings.append("No se pudo normalizar la sonoridad a -14 LUFS; se exportó la mezcla sin normalizar.")
+        os.replace(mix_wav, out_wav)
+    else:
+        if info["normalization_mode"] != attempts[0][0]:
+            warnings.append(
+                f"La normalización de sonoridad usó un modo alternativo ({info['normalization_mode']}) "
+                "porque este FFmpeg no admite el modo preferido; actualiza FFmpeg para el máster de dos pasadas con limitador."
+            )
+        try:
+            mix_wav.unlink()
+        except OSError:
+            pass
+    return info
+
+
+def _encode_preview_mp3(master_wav: Path, dest: Path, work_dir: Path) -> bool:
+    """Browser preview of the master (the delivered MP4 never derives from this MP3)."""
+    tmp = work_dir / f"preview_{uuid.uuid4().hex[:6]}.mp3"
+    try:
+        _run_ffmpeg_cmd([FFMPEG_CMD, "-y", "-nostdin", "-i", str(master_wav), "-c:a", "libmp3lame",
+                         "-b:a", "320k", str(tmp)], "Previsualización MP3 de la pista maestra")
+        return _publish_file(tmp, dest)
+    except Exception as exc:
+        logger.warning(f"No se pudo generar la previsualización MP3 del máster: {exc}")
+        return False
+    finally:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+
+
+def _mux_video_with_master(video_path: Path, master_wav: Path, out_path: Path) -> None:
+    """Copy the video stream and encode the master once to AAC."""
+    _run_ffmpeg_cmd([
+        FFMPEG_CMD, "-y", "-nostdin",
+        "-i", str(video_path), "-i", str(master_wav),
+        "-map", "0:v:0", "-map", "1:a:0",
+        "-c:v", "copy", "-c:a", "aac", "-b:a", "320k", "-ar", "48000",
+        "-movflags", "+faststart", str(out_path),
+    ], "Fusión final de vídeo y pista maestra de audio")
+
+
+def _has_formula_opener(words: List[Dict[str, Any]]) -> bool:
+    """True when the narration starts with a formula opener ("Here's a new Steam game",
+    "So in this new game"). Direct/custom openings return False.
+
+    Stricter than audio_aligner.filter_steam_hook_words, whose loose fallback also
+    matches direct openings such as "This game lets you ..." or "Here you ...".
+    """
+    def norm(w: Any) -> str:
+        return re.sub(r"[^a-z0-9]", "", str(w.get("word", "") if isinstance(w, dict) else "").lower())
+
+    tokens = [norm(w) for w in (words or [])[:8]]
+    for i in range(min(len(tokens) - 1, 6)):
+        if tokens[i] == "steam" and tokens[i + 1] in ("game", "games"):
+            return True
+    if tokens[:5] == ["so", "in", "this", "new", "game"] or tokens[:4] == ["in", "this", "new", "game"]:
+        return True
+    # "Here's a new co-op game", "So in this new survival game": the same opener family the
+    # script layer recognises (formula head + up to 3 words + "game").
+    from script_retention import starts_with_formula_game_opener
+    spoken = " ".join(
+        re.sub(r"[^\w'’\-]", "", str(w.get("word", "") if isinstance(w, dict) else ""))
+        for w in (words or [])[:10]
+    )
+    return starts_with_formula_game_opener(re.sub(r"\s+", " ", spoken).strip())
+
+
 def render_promov3_final_video(
     edl: Dict[str, Any],
     source_video_path: str | Path,
@@ -3266,8 +3955,20 @@ def render_promov3_final_video(
     custom_game_logo_path: Optional[str | Path] = None,
     channel_branding: Optional[Dict[str, Any]] = None,
     require_official_game_logo: bool = False,
+    audio_normalize: bool = True,
+    audio_ducking: bool = True,
+    output_fps: int = 30,
 ) -> Dict[str, Any]:
     """
+    Options:
+    - audio_normalize: two-pass loudnorm of the final master (-14 LUFS, -1 dBTP, LRA 11)
+      plus a peak limiter. False keeps the plain mix.
+    - audio_ducking: gameplay is compressed under the voice (sidechain); gameplay_volume
+      remains its base level. False keeps the fixed-volume mix.
+    - output_fps: 30 (default) or 60; 60 only when the source has >= 50 fps, otherwise
+      30 with a warning.
+    The result dict includes "warnings" (non-blocking issues, e.g. captions not burned).
+
     Renders the complete Promo V3 vertical video from the Step 4 EDL:
     1. Cuts high-resolution segments from the source video at 9:16 vertical crop (or 3:4 centered with blurred bg).
     2. Applies cinematic transitions:
@@ -3277,13 +3978,20 @@ def render_promov3_final_video(
     3. Concatenates all assembled segments into a base video stream.
     4. Generates dynamic animated Steam Opening Hook overlay (0-2s) with pop-in logo & bounce text.
     5. Generates word-by-word kinetic ASS subtitles with custom color palette and vertical position.
-    6. Mixes ElevenLabs voiceover audio with ducked background gameplay audio.
+    6. Mixes ElevenLabs voiceover audio with (optionally ducked) background gameplay audio.
     7. Encodes final high-bitrate MP4 with faststart flags for social media readiness.
     """
     def update_progress(pct: float, msg: str):
         if progress_callback:
             progress_callback(pct, msg)
         logger.info(f"[{pct:.1f}%] {msg}")
+
+    warnings: List[str] = []
+
+    def add_warning(msg: str) -> None:
+        if msg not in warnings:
+            warnings.append(msg)
+            logger.warning(msg)
 
     # The presentation mode also governs callers that leave the legacy flag enabled.
     enable_steam_hook = bool(enable_steam_hook and steam_hook_mode != "none")
@@ -3390,10 +4098,23 @@ def render_promov3_final_video(
                 eleven_key = (cfg.elevenlabs_api_key or os.environ.get("ELEVENLABS_API_KEY", "")).strip()
                 voice_id = (cfg.elevenlabs_voice_id or os.environ.get("ELEVENLABS_VOICE_ID", "TX3LPaxmHKxFdv7VOQHJ")).strip()
 
+                # Measure with the same voice settings as the final narration (step 3).
+                s1_voice_kwargs: Dict[str, float] = {}
+                if session_id:
+                    try:
+                        s3_path = Path(__file__).resolve().parent / "temp" / "v3_cache" / str(session_id) / "step3_script.json"
+                        if s3_path.is_file():
+                            s3_voice = json.loads(s3_path.read_text(encoding="utf-8")) or {}
+                            for key in ("speed", "stability", "similarity_boost"):
+                                if s3_voice.get(key) is not None:
+                                    s1_voice_kwargs[key] = float(s3_voice[key])
+                    except Exception as s3_err:
+                        logger.debug(f"Sin ajustes de voz del paso 3 para medir la primera frase: {s3_err}")
                 s1_dur = get_standalone_sentence_1_duration(
                     script_text=script_txt,
                     api_key=eleven_key,
-                    voice_id=voice_id
+                    voice_id=voice_id,
+                    **s1_voice_kwargs,
                 )
                 if s1_dur > 0.5:
                     target_hook_end = round(s1_dur, 3)
@@ -3444,6 +4165,8 @@ def render_promov3_final_video(
 
     # Normalize Hook cuts adhering strictly to <3s retention rule, available shot footage, and exact target_hook_end
     shots_by_id = {s.get("shot_id"): s for s in session_shots if isinstance(s, dict) and s.get("shot_id") is not None}
+    for c in existing_hook_cuts + existing_body_cuts:
+        _note_best_moment_shot_end(c, shots_by_id)
     s0 = existing_hook_cuts[0] if existing_hook_cuts else {}
     s0_id = s0.get("shot_id")
     s0_shot = shots_by_id.get(s0_id)
@@ -3500,6 +4223,9 @@ def render_promov3_final_video(
                 sc["source_in"] = round(s_start, 3)
                 sc["role"] = "hook"
                 sc["duration"] = _get_shot_available_duration(cand_shot)
+                # Starts at the new shot's start: no best_moment offset is inherited from cut 0.
+                for k in ("source_offset_s", "source_offset_reason", "_shot_start_s", "_shot_end_s"):
+                    sc.pop(k, None)
                 cand_hook_cuts.append(sc)
             else:
                 # Fallback: duplicate first cut but advance source_in
@@ -3508,6 +4234,8 @@ def render_promov3_final_video(
                 prev_dur = float(cand_hook_cuts[-1].get("duration", 2.0))
                 sc["source_in"] = round(prev_in + prev_dur, 3)
                 sc["role"] = "hook"
+                for k in ("source_offset_s", "source_offset_reason", "_shot_start_s", "_shot_end_s"):
+                    sc.pop(k, None)
                 cand_hook_cuts.append(sc)
 
         hook_durations = _distribute_hook_durations(
@@ -3543,6 +4271,9 @@ def render_promov3_final_video(
             remaining = round(remaining - duration, 6)
             if remaining > 0.001:
                 sc["transition_out"] = {"type": "cut", "name": "Corte Limpio", "duration": 0.0}
+            if source_in > float(c.get("source_in", 0.0)) + 0.0005:
+                # Later parts of a split cut continue the footage: never shift them back.
+                sc.pop("_shot_end_s", None)
             final_body_cuts.append(sc)
             source_in += duration
             pacing_time = round(pacing_time + duration, 6)
@@ -3552,14 +4283,28 @@ def render_promov3_final_video(
     num_hook_cuts = len(final_hook_cuts)
     hook_dur = target_hook_end
 
-    # Temporary render workspace
+    # Temporary render workspace. Fixed-name intermediates live in a unique run folder
+    # (session + random id) so two renders of the same session never overwrite each
+    # other; the folder is removed after a successful render.
     work_dir = Path(temp_dir).resolve() if temp_dir else (out_dir / f"temp_promov3_{int(time.time()*1000)}")
     work_dir.mkdir(parents=True, exist_ok=True)
-    clips_dir = work_dir / "clips"
+    _prune_stale_render_runs(work_dir)
+    run_dir = _new_render_run_dir(work_dir, session_id or edl.get("session_id"))
+    clips_dir = run_dir / "clips"
     clips_dir.mkdir(parents=True, exist_ok=True)
 
+    # Output frame rate (30 default; 60 only with >= 50 fps sources).
+    fps_sources: List[Path] = []
+    if output_fps not in (None, 30, "30"):
+        for c in cuts:
+            cand = c.get("video_path") or source_video_path
+            resolved_src = resolve_promov3_video_path(cand, game_name=game_name, session_id=session_id) if cand else None
+            if resolved_src and resolved_src not in fps_sources:
+                fps_sources.append(resolved_src)
+    render_fps = _resolve_render_fps(output_fps, fps_sources, warnings)
+
     source_has_audio = check_media_has_audio(source_video) if (source_video and source_video.exists()) else True
-    def _build_cut_vf(src_v_path: Path) -> str:
+    def _build_cut_vf(src_v_path: Path, fps: int = 30) -> str:
         if video_format in ("blur_3_4", "blur_1_1"):
             fg_w = out_w
             blur_rad = 28 if is_4k else 20
@@ -3580,10 +4325,10 @@ def render_promov3_final_video(
                 f"[bg]scale={out_w}:{out_h}:force_original_aspect_ratio=increase,crop={out_w}:{out_h},"
                 f"boxblur={blur_rad}:{blur_pwr},eq=brightness=-0.10:saturation=1.1[bg_blur];"
                 f"[fg]{fg_crop_filter}[fg_crop];"
-                f"[bg_blur][fg_crop]overlay=(W-w)/2:(H-h)/2,setsar=1,fps=30"
+                f"[bg_blur][fg_crop]overlay=(W-w)/2:(H-h)/2,setsar=1,fps={fps}"
             )
         else:
-            return f"scale={out_w}:{out_h}:force_original_aspect_ratio=increase,crop={out_w}:{out_h},setsar=1,fps=30"
+            return f"scale={out_w}:{out_h}:force_original_aspect_ratio=increase,crop={out_w}:{out_h},setsar=1,fps={fps}"
 
     # Enforce visually distinct clip for the cut immediately following the Hook
     if not sentence_clip_mode and len(cuts) > last_hook_idx + 1:
@@ -3611,6 +4356,14 @@ def render_promov3_final_video(
         c["start_time_in_video"] = round(acc, 3)
         acc += float(c.get("duration", 3.0))
         c["end_time_in_video"] = round(acc, 3)
+
+    # best_moment starts were chosen for the step 4 durations. The hook re-timing above,
+    # the post-hook swap and xfade tails can ask for more footage: move those starts back
+    # (never before the shot start) so no cut shows frames of the following shot.
+    for c_idx, c in enumerate(cuts):
+        c_type = (c.get("transition_out") or {}).get("type", "cut")
+        tail = (0.35 if c_type == "circle_zoom" else 0.30) if (c_type in ("circle_zoom", "glitch_pixelize") and c_idx + 1 < len(cuts)) else 0.0
+        _fit_best_moment_cut_in_shot(c, float(c.get("duration", 3.0)) + tail)
 
     segment_paths: List[Path] = []
     applied_transitions: List[Dict[str, Any]] = []
@@ -3655,7 +4408,7 @@ def render_promov3_final_video(
             has_audio_a = check_media_has_audio(src_v_a) if src_v_a.exists() else source_has_audio
             has_audio_b = check_media_has_audio(src_v_b) if src_v_b.exists() else source_has_audio
 
-            vf_a = _build_cut_vf(src_v_a)
+            vf_a = _build_cut_vf(src_v_a, render_fps)
             if apply_white_fade_in:
                 vf_a += ",fade=t=in:st=0:d=0.07:color=white"
                 apply_white_fade_in = False
@@ -3670,7 +4423,7 @@ def render_promov3_final_video(
                 has_audio=has_audio_a,
             )
 
-            vf_b = _build_cut_vf(src_v_b) + ",format=yuv420p"
+            vf_b = _build_cut_vf(src_v_b, render_fps) + ",format=yuv420p"
             _extract_subclip(
                 src_v_b,
                 start_time=next_in,
@@ -3719,7 +4472,7 @@ def render_promov3_final_video(
             raise FileNotFoundError(f"Vídeo de origen no encontrado para el corte #{idx+1}: '{cut_v_path}'")
         has_audio = check_media_has_audio(src_v) if src_v.exists() else source_has_audio
 
-        vf = _build_cut_vf(src_v)
+        vf = _build_cut_vf(src_v, render_fps)
         if apply_white_fade_in:
             vf += ",fade=t=in:st=0:d=0.07:color=white"
             apply_white_fade_in = False
@@ -3748,12 +4501,12 @@ def render_promov3_final_video(
 
     # Concatenate all cuts into a base assembled video
     update_progress(65.0, "Concatenando planos de la Edit Decision List...")
-    concat_txt = work_dir / "concat_list.txt"
+    concat_txt = run_dir / "concat_list.txt"
     with open(concat_txt, "w", encoding="utf-8") as f:
         for sp in segment_paths:
-            f.write(f"file '{sp.resolve().as_posix()}'\n")
+            f.write(_concat_list_entry(sp))
 
-    temp_assembled_video = work_dir / "temp_assembled.mp4"
+    temp_assembled_video = run_dir / "temp_assembled.mp4"
     concat_cmd = [
         FFMPEG_CMD, "-y",
         "-f", "concat",
@@ -3775,12 +4528,12 @@ def render_promov3_final_video(
         loop_count = math.ceil(voice_dur / assembled_dur) + 1
         with open(concat_txt, "w", encoding="utf-8") as f:
             for sp in segment_paths:
-                f.write(f"file '{sp.resolve().as_posix()}'\n")
+                f.write(_concat_list_entry(sp))
             body_paths = segment_paths[num_hook_cuts:] if len(segment_paths) > num_hook_cuts else segment_paths
             for _ in range(loop_count - 1):
                 for sp in body_paths:
-                    f.write(f"file '{sp.resolve().as_posix()}'\n")
-        temp_assembled_looped = work_dir / "temp_assembled_looped.mp4"
+                    f.write(_concat_list_entry(sp))
+        temp_assembled_looped = run_dir / "temp_assembled_looped.mp4"
         concat_cmd_loop = [
             FFMPEG_CMD, "-y",
             "-f", "concat",
@@ -3792,11 +4545,13 @@ def render_promov3_final_video(
         ]
         _run_ffmpeg_cmd(concat_cmd_loop, "Extensión de vídeo base ensamblado")
         temp_assembled_video = temp_assembled_looped
-        temp_assembled_video = temp_assembled_looped
 
     # 2. Classic splash lasts 1s; modern mode follows the spoken Steam prefix.
     steam_hook_overlay_dur = 1.0 if steam_hook_mode == "classic" else min(target_hook_end, 1.8)
-    if enable_steam_hook and words_list and steam_hook_mode != "classic":
+    # Direct/custom openings have no spoken "Here's a new Steam game": the splash keeps
+    # its normal short duration and must not be stretched by a loose word match.
+    spoken_formula_opener = _has_formula_opener(words_list) if words_list else False
+    if enable_steam_hook and words_list and steam_hook_mode != "classic" and spoken_formula_opener:
         try:
             from audio_aligner import filter_steam_hook_words
             _, overlay_end_time = filter_steam_hook_words(words_list)
@@ -3806,7 +4561,7 @@ def render_promov3_final_video(
             logger.debug(f"Could not calculate spoken steam hook overlay duration: {e}")
 
     # Steam Hook Overlay
-    hook_overlay_mov = work_dir / "steam_hook_overlay.mov"
+    hook_overlay_mov = run_dir / "steam_hook_overlay.mov"
     has_hook_overlay = False
     if enable_steam_hook and steam_hook_overlay_dur > 0.5:
         update_progress(72.0, f"Generando animación de Steam Hook ({steam_hook_overlay_dur:.1f}s)...")
@@ -3817,7 +4572,7 @@ def render_promov3_final_video(
                 duration=steam_hook_overlay_dur,
                 width=out_w,
                 height=out_h,
-                fps=30,
+                fps=render_fps,
                 ffmpeg_bin=FFMPEG_CMD,
                 logo_scale=float(steam_logo_scale),
                 logo_y_pos=int(hook_logo_y),
@@ -3827,11 +4582,11 @@ def render_promov3_final_video(
             )
             has_hook_overlay = hook_overlay_mov.exists()
         except Exception as hook_err:
-            logger.warning(f"Error generando Steam Hook overlay: {hook_err}")
+            add_warning(f"No se pudo generar la animación 'NEW STEAM GAME' ({_short_error(hook_err)}); el vídeo sale sin ella.")
             has_hook_overlay = False
 
     # Game Name Reveal Overlay (Optional widget revealing Steam game logo)
-    reveal_overlay_mov = work_dir / "game_name_reveal_overlay.mov"
+    reveal_overlay_mov = run_dir / "game_name_reveal_overlay.mov"
     has_reveal_overlay = False
 
     # Exact flash cut timestamp where the hook transitions into the body
@@ -3894,7 +4649,7 @@ def render_promov3_final_video(
                 reveal_duration=wipe_dur,
                 width=out_w,
                 height=out_h,
-                fps=30,
+                fps=render_fps,
                 ffmpeg_bin=FFMPEG_CMD,
                 widget_y=int(game_name_reveal_y),
                 widget_scale=float(game_name_reveal_scale),
@@ -3907,15 +4662,21 @@ def render_promov3_final_video(
         except Exception as rev_err:
             if require_official_game_logo:
                 raise RuntimeError("No se pudo mostrar el logo oficial del juego. Revisa el recurso y vuelve a renderizar.") from rev_err
-            logger.warning(f"Error generando Game Name Reveal overlay: {rev_err}")
+            add_warning(f"No se pudo generar el widget con el nombre del juego ({_short_error(rev_err)}); el vídeo sale sin él.")
             has_reveal_overlay = False
 
     # Kinetic Captions (.ass)
-    ass_sub_path = work_dir / "kinetic_captions.ass"
+    ass_sub_path = run_dir / "kinetic_captions.ass"
     has_subtitles = False
 
     if words_list:
         update_progress(80.0, f"Generando subtítulos dinámicos kinetic ({len(words_list)} palabras)...")
+        # Without a splash (enable_steam_hook False or overlay failed) captions start at
+        # t=0. With a splash only its own window may hide words: for direct/custom
+        # openings in unknown modes avoid the loose prefix matcher that drops words.
+        ass_hook_mode = steam_hook_mode
+        if has_hook_overlay and not spoken_formula_opener and steam_hook_mode not in ("classic", "subtitles_above"):
+            ass_hook_mode = "classic"
         try:
             from audio_aligner import generate_kinetic_ass_subtitles
             highlight_col = captions_highlight_color or "#FFF380"
@@ -3929,30 +4690,37 @@ def render_promov3_final_video(
                 margin_v=margin_v,
                 highlight_color=highlight_col,
                 skip_steam_hook=has_hook_overlay,
-                steam_hook_mode=steam_hook_mode,
+                steam_hook_mode=ass_hook_mode,
                 intro_subtitles_y=int(intro_subtitles_y),
                 intro_font_size=int(intro_font_sz),
                 intro_duration=float(steam_hook_overlay_dur) if has_hook_overlay else 0.0,
             )
             has_subtitles = ass_sub_path.exists()
         except Exception as ass_err:
-            logger.warning(f"Error generando subtítulos ASS: {ass_err}")
+            add_warning(f"No se pudieron generar los subtítulos ({_short_error(ass_err)}); el vídeo sale sin subtítulos.")
             has_subtitles = False
+    else:
+        add_warning("No hay alineación palabra a palabra de la locución; el vídeo sale sin subtítulos.")
 
     # Final Audio Mix & Export
-    update_progress(88.0, "Mezclando audio con ducking, quemando subtítulos y renderizando con FFmpeg...")
+    update_progress(88.0, "Preparando mezcla de audio, subtítulos y render con FFmpeg...")
     clean_game_name = "".join(c for c in (game_name or "promov3") if c.isalnum() or c in ("-", "_")).lower() or "promo"
     run_id = int(time.time())
     final_filename = f"{clean_game_name}_promo_v3_{resolution}_{run_id}.mp4"
     final_output_path = out_dir / final_filename
+    dup_n = 2
+    while final_output_path.exists():
+        # Never overwrite a delivered video (e.g. two renders in the same second).
+        final_filename = f"{clean_game_name}_promo_v3_{resolution}_{run_id}_{dup_n}.mp4"
+        final_output_path = out_dir / final_filename
+        dup_n += 1
 
     bg_vol = float(gameplay_volume if gameplay_volume is not None else 0.15)
     if bg_vol > 1.0:
         bg_vol = bg_vol / 100.0
     bg_vol = max(0.0, min(1.0, bg_vol))
 
-    has_assembled_audio = check_media_has_audio(temp_assembled_video) if bg_vol > 0.001 else False
-    safe_ass = str(ass_sub_path.resolve()).replace("\\", "/").replace(":", "\\:")
+    has_assembled_audio = check_media_has_audio(temp_assembled_video)
 
     # Keep the original timeline even when composing legacy cached clips with
     # mixed metadata. All clips are already normalised to the same dimensions.
@@ -3979,7 +4747,7 @@ def render_promov3_final_video(
     from channel_branding import ChannelBrandingSettings, add_channel_branding_filter
     branding_settings = ChannelBrandingSettings.model_validate(channel_branding or {})
     curr_v = add_channel_branding_filter(inputs, v_filters, curr_v, branding_settings,
-                                         out_w, out_h, work_dir / "channel_branding.png")
+                                         out_w, out_h, run_dir / "channel_branding.png")
     in_idx = inputs.count("-i")
 
     # Prepare fallback video filter without subtitles
@@ -3991,7 +4759,10 @@ def render_promov3_final_video(
         fallback_v = "[0:v]copy[vout]"
 
     if has_subtitles:
-        v_filters.append(f"{curr_v}ass='{safe_ass}'[vout]")
+        # FFmpeg runs with cwd=run_dir and a plain relative file name, so drive letters,
+        # apostrophes, colons, brackets or non-ASCII characters in the absolute path
+        # never reach the filtergraph parser.
+        v_filters.append(f"{curr_v}ass={ass_sub_path.name}[vout]")
         comp_filter = ";".join(v_filters)
     else:
         if v_filters:
@@ -4000,68 +4771,40 @@ def render_promov3_final_video(
         else:
             comp_filter = "[0:v]copy[vout]"
 
-    audio_prep_filters = []
-    audio_prep_filters.append("[1:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,volume=1.0[v_a]")
-    amix_inputs = ["[v_a]"]
-
-    if has_assembled_audio:
-        audio_prep_filters.append(f"[0:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,volume={bg_vol:.2f}[g_a]")
-        amix_inputs.append("[g_a]")
-
     custom_sfx_tracks = edl.get("sfx_tracks") if isinstance(edl, dict) else None
     r2_timing_info = None
+    sfx_specs: List[Dict[str, Any]] = []
 
     # Calculate the exact timestamp of the visual cut with White Flash
     flash_cut_timestamp = round(sum(float(c.get("duration", 0.0)) for c in final_hook_cuts), 3) if final_hook_cuts else round(target_hook_end, 3)
 
     if custom_sfx_tracks:
-        sfx_base = BASE_DIR / "static" / "sfx"
         logger.info(f"Integrando {len(custom_sfx_tracks)} pistas de SFX personalizadas de la línea de tiempo (Flash cut en {flash_cut_timestamp:.3f}s)...")
 
         for s_idx_num, trk in enumerate(custom_sfx_tracks, 1):
             rel = trk.get("relative_path") or trk.get("file") or trk.get("name") or "raiser1.wav"
-            if not any(rel.endswith(ext) for ext in [".wav", ".mp3", ".mp4", ".ogg", ".flac", ".m4a"]):
-                rel = f"{rel}.wav"
+            sf_path = _resolve_sfx_track_path(trk)
+            if not sf_path:
+                add_warning(f"No se encontró el efecto de sonido '{rel}'; se omitió de la mezcla.")
+                continue
+            vol = float(trk.get("volume", 0.80))
+            start_s = float(trk.get("start_s", 0.0))
+            trim_s = float(trk.get("trim_start_s", 0.0))
 
-            sf_path = sfx_base / rel
-            if not sf_path.exists():
-                sf_path = sfx_base / "raisers" / Path(rel).name
-            if not sf_path.exists():
-                matches = list(sfx_base.rglob(Path(rel).name))
-                if matches:
-                    sf_path = matches[0]
+            # Auto-align Raiser 2 if not explicitly pinned by the user, ensuring peak lands on the flash cut
+            is_r2 = ("raiser2" in rel.lower()) or (trk.get("id") == "trk_raiser2") or (trk.get("name") == "raiser2")
+            if is_r2 and trk.get("auto_sync") is True and trk.get("reason") and not trk.get("pinned"):
+                expected_start = round(flash_cut_timestamp - 1.240, 3)
+                if expected_start < 0:
+                    trim_s = round(abs(expected_start), 3)
+                    start_s = 0.0
+                else:
+                    start_s = expected_start
+                    trim_s = 0.0
+                logger.info(f"   • Auto-sincronizado Raiser 2 ({sf_path.name}) para impacto en Flash Blanco a {flash_cut_timestamp:.3f}s: inicio={start_s:.3f}s, trim={trim_s:.3f}s")
 
-            if sf_path.exists():
-                inputs.extend(["-i", str(sf_path)])
-                in_idx = inputs.count("-i") - 1
-                vol = float(trk.get("volume", 0.80))
-                start_s = float(trk.get("start_s", 0.0))
-                trim_s = float(trk.get("trim_start_s", 0.0))
-
-                # Auto-align Raiser 2 if not explicitly pinned by the user, ensuring peak lands on the flash cut
-                is_r2 = ("raiser2" in rel.lower()) or (trk.get("id") == "trk_raiser2") or (trk.get("name") == "raiser2")
-                if is_r2 and trk.get("auto_sync") is True and trk.get("reason") and not trk.get("pinned"):
-                    expected_start = round(flash_cut_timestamp - 1.240, 3)
-                    if expected_start < 0:
-                        trim_s = round(abs(expected_start), 3)
-                        start_s = 0.0
-                    else:
-                        start_s = expected_start
-                        trim_s = 0.0
-                    logger.info(f"   • Auto-sincronizado Raiser 2 ({sf_path.name}) para impacto en Flash Blanco a {flash_cut_timestamp:.3f}s: inicio={start_s:.3f}s, trim={trim_s:.3f}s")
-
-                f_parts = ["aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo"]
-                if trim_s > 0.01:
-                    f_parts.append(f"atrim=start={trim_s:.3f},asetpts=PTS-STARTPTS")
-                if start_s > 0.01:
-                    start_ms = int(round(start_s * 1000))
-                    f_parts.append(f"adelay={start_ms}|{start_ms}")
-                f_parts.append(f"volume={vol:.2f}")
-
-                filter_str = f"[{in_idx}:a]" + ",".join(f_parts) + f"[cust_sfx_{s_idx_num}]"
-                audio_prep_filters.append(filter_str)
-                amix_inputs.append(f"[cust_sfx_{s_idx_num}]")
-                logger.info(f"   • SFX #{s_idx_num} ({sf_path.name}): inicio a {start_s:.2f}s, vol {int(vol*100)}%")
+            sfx_specs.append({"path": sf_path, "start_s": start_s, "trim_s": trim_s, "volume": vol})
+            logger.info(f"   • SFX #{s_idx_num} ({sf_path.name}): inicio a {start_s:.2f}s, vol {int(vol*100)}%")
     elif edl.get("allow_automatic_sfx") is True and edl.get("automatic_sfx_reason") and edl.get("automatic_sfx_anchor") is not None:
         # Legacy raisers require an explicit editorial opt-in and a real action anchor.
         # Check for Raiser SFX in static/sfx/raisers/
@@ -4078,42 +4821,22 @@ def render_promov3_final_video(
         if not r2_path.exists():
             r2_path = sfx_dir / "Raiser2.mp4"
 
-        r1_idx = None
-        r2_idx = None
-
-        if r1_path.exists():
-            inputs.extend(["-i", str(r1_path)])
-            r1_idx = inputs.count("-i") - 1
-
-        if r2_path.exists():
-            inputs.extend(["-i", str(r2_path)])
-            r2_idx = inputs.count("-i") - 1
-
-        if r1_idx is not None:
+        # Raiser 1 builds up to the NEW STEAM GAME splash: without splash it is not forced.
+        if r1_path.exists() and enable_steam_hook:
             dur1 = get_media_duration(r1_path)
             if dur1 <= 0.1:
                 dur1 = 1.4
-            target_r1_end = steam_hook_overlay_dur if (enable_steam_hook and steam_hook_overlay_dur > 0.5) else 1.8
+            target_r1_end = steam_hook_overlay_dur if steam_hook_overlay_dur > 0.5 else 1.8
             if dur1 > target_r1_end:
                 trim_off1 = round(dur1 - target_r1_end, 3)
-                audio_prep_filters.append(
-                    f"[{r1_idx}:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,atrim=start={trim_off1:.3f},asetpts=PTS-STARTPTS,volume=0.80[sfx1]"
-                )
+                sfx_specs.append({"path": r1_path, "start_s": 0.0, "trim_s": trim_off1, "volume": 0.80})
                 logger.info(f"Integrando SFX Raiser 1 (recortado {trim_off1:.2f}s para terminar exactamente cuando desaparece el splash de NEW STEAM GAME a {target_r1_end:.2f}s): {r1_path.name}")
             else:
-                r1_delay_ms = int(round((target_r1_end - dur1) * 1000))
-                if r1_delay_ms > 0:
-                    audio_prep_filters.append(
-                        f"[{r1_idx}:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,adelay={r1_delay_ms}|{r1_delay_ms},volume=0.80[sfx1]"
-                    )
-                else:
-                    audio_prep_filters.append(
-                        f"[{r1_idx}:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,volume=0.80[sfx1]"
-                    )
-                logger.info(f"Integrando SFX Raiser 1 (inicia a {max(0.0, target_r1_end - dur1):.2f}s para terminar exactamente cuando desaparece el splash de NEW STEAM GAME a {target_r1_end:.2f}s): {r1_path.name}")
-            amix_inputs.append("[sfx1]")
+                r1_start = round(max(0.0, target_r1_end - dur1), 3)
+                sfx_specs.append({"path": r1_path, "start_s": r1_start, "trim_s": 0.0, "volume": 0.80})
+                logger.info(f"Integrando SFX Raiser 1 (inicia a {r1_start:.2f}s para terminar exactamente cuando desaparece el splash de NEW STEAM GAME a {target_r1_end:.2f}s): {r1_path.name}")
 
-        if r2_idx is not None:
+        if r2_path.exists():
             dur2 = get_media_duration(r2_path)
             if dur2 <= 0.1:
                 dur2 = 1.66
@@ -4122,25 +4845,15 @@ def render_promov3_final_video(
 
             if target_r2_start < 0:
                 trim_off = round(abs(target_r2_start), 3)
-                audio_prep_filters.append(
-                    f"[{r2_idx}:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,atrim=start={trim_off:.3f},asetpts=PTS-STARTPTS,volume=0.80[sfx2]"
-                )
+                sfx_specs.append({"path": r2_path, "start_s": 0.0, "trim_s": trim_off, "volume": 0.80})
                 r2_start_time = 0.0
                 r2_climax_time = round(flash_cut_timestamp, 3)
                 r2_end_time = round(max(0.0, dur2 - trim_off), 3)
             else:
-                r2_delay_ms = int(round(target_r2_start * 1000))
                 r2_start_time = round(target_r2_start, 3)
                 r2_climax_time = round(flash_cut_timestamp, 3)
                 r2_end_time = round(target_r2_start + dur2, 3)
-                if r2_delay_ms > 0:
-                    audio_prep_filters.append(
-                        f"[{r2_idx}:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,adelay={r2_delay_ms}|{r2_delay_ms},volume=0.80[sfx2]"
-                    )
-                else:
-                    audio_prep_filters.append(
-                        f"[{r2_idx}:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,volume=0.80[sfx2]"
-                    )
+                sfx_specs.append({"path": r2_path, "start_s": r2_start_time, "trim_s": 0.0, "volume": 0.80})
 
             r2_timing_info = {
                 "sentence_1_end_s": round(flash_cut_timestamp, 3),
@@ -4150,14 +4863,9 @@ def render_promov3_final_video(
                 "file_duration_s": round(dur2, 3),
             }
             update_progress(89.0, f"Integrado SFX Raiser 2 a {r2_start_time:.2f}s")
-            amix_inputs.append("[sfx2]")
 
-    audio_chain = ";".join(audio_prep_filters)
-    audio_mix = f";{''.join(amix_inputs)}amix=inputs={len(amix_inputs)}:duration=first:dropout_transition=0:normalize=0[aout]"
-    audio_filter = f";{audio_chain}{audio_mix}"
-
-    silent_video_cache = work_dir / "silent_video.mp4"
-    master_audio_cache = work_dir / "master_audio.mp3"
+    silent_video_cache = run_dir / "silent_video.mp4"
+    master_audio_wav = run_dir / "master_audio.wav"
 
     # Step 1: Render Silent Video with Subtitles + Steam Hook (no audio)
     update_progress(92.0, "Generando vídeo mudo con subtítulos y gráfica de Steam...")
@@ -4177,7 +4885,7 @@ def render_promov3_final_video(
     ]
 
     try:
-        _run_ffmpeg_cmd(silent_cmd, "Composición de vídeo mudo con subtítulos ASS")
+        _run_ffmpeg_cmd(silent_cmd, "Composición de vídeo mudo con subtítulos ASS", cwd=run_dir)
     except Exception as sil_err:
         logger.warning(f"Error en vídeo mudo con ASS ({sil_err}), reintentando sin filtro ASS...")
         fallback_cmd = [
@@ -4194,52 +4902,71 @@ def render_promov3_final_video(
             "-movflags", "+faststart",
             str(silent_video_cache),
         ]
-        _run_ffmpeg_cmd(fallback_cmd, "Composición de vídeo mudo sin filtro ASS (fallback)")
-
-    # Step 2: Render Master Audio Track
-    update_progress(96.0, "Mezclando pista maestra de audio (Voz + SFX + Gameplay)...")
-    audio_cmd = [
-        FFMPEG_CMD, "-y",
-        *inputs,
-        "-filter_complex", audio_filter[1:],  # strip leading ';'
-        "-map", "[aout]",
-        "-c:a", "libmp3lame",
-        "-b:a", "320k",
-        "-t", f"{voice_dur:.3f}",
-        str(master_audio_cache),
-    ]
-    _run_ffmpeg_cmd(audio_cmd, "Mezcla de pista maestra de audio")
-
-    # Step 3: Fast Mux (Combine Silent Video + Master Audio)
-    update_progress(98.0, "Fusionando vídeo mudo y pista de audio maestra...")
-    mux_cmd = [
-        FFMPEG_CMD, "-y",
-        "-i", str(silent_video_cache),
-        "-i", str(master_audio_cache),
-        "-c:v", "copy",
-        "-c:a", "aac",
-        "-b:a", "320k",
-        "-movflags", "+faststart",
-        str(final_output_path),
-    ]
-    _run_ffmpeg_cmd(mux_cmd, "Fusión final de vídeo y pista maestra de audio")
+        _run_ffmpeg_cmd(fallback_cmd, "Composición de vídeo mudo sin filtro ASS (fallback)", cwd=run_dir)
+        if has_subtitles:
+            add_warning(f"No se pudieron quemar los subtítulos en el vídeo ({_short_error(sil_err)}); se exportó sin subtítulos.")
+        has_subtitles = False
 
     # Do not report success for an audio-only tail masked by the mux duration.
     silent_duration = get_media_duration(silent_video_cache)
     if silent_duration < voice_dur - 0.1:
         raise ValueError(f"El vídeo compuesto termina antes que la voz ({silent_duration:.3f}s / {voice_dur:.3f}s).")
 
+    # Step 2: Render Master Audio Track (lossless WAV; AAC is encoded once in the mux)
+    master_steps = ["Voz + SFX + Gameplay"]
+    if has_assembled_audio and bg_vol > 0.001:
+        master_steps.append("ducking del gameplay bajo la voz" if audio_ducking else "gameplay a volumen fijo")
+    if audio_normalize:
+        master_steps.append(f"normalización a {MASTER_LOUDNESS_I:.0f} LUFS")
+    update_progress(96.0, f"Mezclando pista maestra de audio ({', '.join(master_steps)})...")
+    gameplay_stem: Optional[Path] = None
+    if has_assembled_audio:
+        stem_candidate = run_dir / "gameplay_audio.flac"
+        try:
+            _run_ffmpeg_cmd([
+                FFMPEG_CMD, "-y", "-nostdin", "-i", str(temp_assembled_video),
+                "-map", "0:a:0", "-vn", "-c:a", "flac", "-ar", "48000", "-ac", "2", str(stem_candidate),
+            ], "Extracción de la pista de gameplay")
+            gameplay_stem = stem_candidate
+        except Exception as stem_err:
+            if bg_vol > 0.001:
+                add_warning(f"No se pudo extraer el audio del gameplay ({_short_error(stem_err)}); la mezcla va sin él.")
+    audio_info = _render_master_audio(
+        voiceover_audio,
+        gameplay_stem if bg_vol > 0.001 else None,
+        bg_vol,
+        sfx_specs,
+        master_audio_wav,
+        run_dir,
+        duration=voice_dur,
+        ducking=bool(audio_ducking),
+        normalize=bool(audio_normalize),
+    )
+    for audio_warning in audio_info.get("warnings", []):
+        add_warning(audio_warning)
+
+    # Step 3: Fast Mux (Combine Silent Video + Master Audio)
+    update_progress(98.0, "Fusionando vídeo mudo y pista de audio maestra...")
+    _mux_video_with_master(silent_video_cache, master_audio_wav, final_output_path)
+
     # Copy files to session cache dir for easy serving
     resolved_session_id = session_id or edl.get("session_id") or (Path(temp_dir).parent.name if temp_dir and Path(temp_dir).parent.name not in ("temp", "") else voiceover_audio.parent.name)
     session_cache_dir = BASE_DIR / "temp" / "v3_cache" / resolved_session_id
     session_cache_dir.mkdir(parents=True, exist_ok=True)
-    sess_silent = session_cache_dir / "silent_video.mp4"
-    sess_audio = session_cache_dir / "master_audio.mp3"
+    _publish_file(silent_video_cache, session_cache_dir / "silent_video.mp4")
+    _encode_preview_mp3(master_audio_wav, session_cache_dir / "master_audio.mp3", run_dir)
+    gameplay_audio_path = None
+    if gameplay_stem and _publish_file(gameplay_stem, session_cache_dir / "gameplay_audio.flac"):
+        gameplay_audio_path = str(session_cache_dir / "gameplay_audio.flac")
+
+    # Keep the latest silent video at its historical location, then drop this run's
+    # intermediates (clips, assembled video, overlays, WAV masters).
+    legacy_silent = work_dir / "silent_video.mp4"
     try:
-        shutil.copy2(silent_video_cache, sess_silent)
-        shutil.copy2(master_audio_cache, sess_audio)
-    except Exception:
-        pass
+        os.replace(silent_video_cache, legacy_silent)
+    except OSError:
+        _publish_file(silent_video_cache, legacy_silent)
+    shutil.rmtree(run_dir, ignore_errors=True)
 
     file_size_bytes = final_output_path.stat().st_size if final_output_path.exists() else 0
     file_size_mb = round(file_size_bytes / (1024 * 1024), 2)
@@ -4271,19 +4998,33 @@ def render_promov3_final_video(
         "file_size_mb": file_size_mb,
         "gameplay_volume": round(bg_vol * 100, 1),
         "sfx_timing": r2_timing_info,
+        "warnings": list(warnings),
+        "output_fps": render_fps,
+        "audio_normalize": bool(audio_normalize),
+        "audio_ducking": bool(audio_ducking),
+        "audio_normalized": bool(audio_info.get("normalized")),
+        "audio_ducking_applied": bool(audio_info.get("ducking_applied")),
+        "audio_normalization_mode": audio_info.get("normalization_mode"),
+        "measured_loudness": audio_info.get("measured_loudness"),
+        "gameplay_audio_path": gameplay_audio_path,
+        "spoken_formula_opener": bool(spoken_formula_opener),
+        "steam_hook_duration": round(float(steam_hook_overlay_dur), 3) if has_hook_overlay else 0.0,
     }
-
 
 def remix_promov3_audio_sfx(
     session_dir: str | Path,
     sfx_tracks: List[Dict[str, Any]],
     gameplay_volume: float = 0.15,
+    audio_ducking: Optional[bool] = None,
+    audio_normalize: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """
-    Fast SFX & Audio Re-mixer (~1.5s execution):
-    Takes an existing session folder with step5_result.json, voiceover.mp3, and temp_assembled_video.mp4.
+    Fast SFX & Audio Re-mixer (no video re-encode):
+    Takes an existing session folder with step5_result.json, the voiceover and the gameplay
+    audio stem saved by the render (gameplay_audio.flac; legacy temp_assembled_video.mp4).
     Re-mixes audio streams according to user-customized sfx_tracks parameters (start_s, trim_start_s, volume)
-    and muxes them with the pre-rendered video using `-c:v copy` (zero video re-encoding overhead).
+    with the SAME master chain as the full render (ducking / loudness normalisation default to
+    the options used by that render) and muxes them with the pre-rendered video using `-c:v copy`.
     Updates step5_result.json and returns updated render metadata.
     """
     sess_dir = Path(session_dir).resolve()
@@ -4307,127 +5048,69 @@ def remix_promov3_audio_sfx(
                 voice_path = Path(s3_data.get("audio_path", ""))
         except Exception:
             pass
-
-    raw_assembled_video = sess_dir / "temp_assembled_video.mp4"
-
-    inputs = ["-i", str(video_path)]  # Input 0: pre-rendered video for -map 0:v
-
-    has_raw_gameplay = False
-    gameplay_stream_idx = 0
-    if raw_assembled_video.exists():
-        inputs.extend(["-i", str(raw_assembled_video)])
-        has_raw_gameplay = check_media_has_audio(raw_assembled_video)
-        gameplay_stream_idx = (len(inputs) // 2) - 1
-
-    step3_file = sess_dir / "step3_voice.json"
-    voice_path = None
-    if step3_file.exists():
-        try:
-            with open(step3_file, "r", encoding="utf-8") as f:
-                s3_data = json.load(f)
-                voice_path = Path(s3_data.get("audio_path", ""))
-        except Exception:
-            pass
-
-    if not voice_path or not voice_path.exists():
+    if not voice_path or not voice_path.is_file():
         voice_path = sess_dir / "voiceover.mp3"
+    has_voice = voice_path.is_file()
 
-    has_voice = False
-    voice_stream_idx = None
-    if voice_path and voice_path.exists():
-        inputs.extend(["-i", str(voice_path)])
-        has_voice = True
-        voice_stream_idx = (len(inputs) // 2) - 1
+    # Gameplay bed: the lossless stem written by the render, or the legacy assembled video.
+    gameplay_source: Optional[Path] = None
+    for cand in (step5_data.get("gameplay_audio_path"), sess_dir / "gameplay_audio.flac", sess_dir / "temp_assembled_video.mp4"):
+        if cand and Path(cand).is_file() and check_media_has_audio(cand):
+            gameplay_source = Path(cand)
+            break
 
     bg_vol = float(gameplay_volume if gameplay_volume is not None else 0.15)
     if bg_vol > 1.0:
         bg_vol = bg_vol / 100.0
     bg_vol = max(0.0, min(1.0, bg_vol))
 
-    audio_prep_filters = []
-    amix_inputs = []
+    ducking = bool(step5_data.get("audio_ducking", True) if audio_ducking is None else audio_ducking)
+    normalize = bool(step5_data.get("audio_normalize", True) if audio_normalize is None else audio_normalize)
 
-    if has_voice and voice_stream_idx is not None:
-        audio_prep_filters.append(f"[{voice_stream_idx}:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,volume=1.0[v_a]")
-        amix_inputs.append("[v_a]")
+    remix_warnings: List[str] = []
+    sfx_specs: List[Dict[str, Any]] = []
+    for trk in sfx_tracks or []:
+        sf_path = _resolve_sfx_track_path(trk)
+        if not sf_path:
+            rel = trk.get("relative_path") or trk.get("file") or trk.get("name") or "raiser1.wav"
+            remix_warnings.append(f"No se encontró el efecto de sonido '{rel}'; se omitió de la mezcla.")
+            continue
+        sfx_specs.append({
+            "path": sf_path,
+            "start_s": float(trk.get("start_s", 0.0)),
+            "trim_s": float(trk.get("trim_start_s", 0.0)),
+            "volume": float(trk.get("volume", 0.80)),
+        })
 
-    if bg_vol > 0.001 and has_raw_gameplay:
-        audio_prep_filters.append(f"[{gameplay_stream_idx}:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,volume={bg_vol:.2f}[g_a]")
-        amix_inputs.append("[g_a]")
+    # Without a voice file, fall back to the delivered audio (it already contains the
+    # gameplay bed, so the stem is not added twice).
+    voice_source = voice_path if has_voice else video_path
+    if not has_voice:
+        gameplay_source = None
+        remix_warnings.append("No se encontró la locución de la sesión; se remezcló sobre el audio del vídeo exportado.")
 
-    sfx_base = BASE_DIR / "static" / "sfx"
-
-    for idx, trk in enumerate(sfx_tracks):
-        rel = trk.get("relative_path") or trk.get("file") or trk.get("name") or "raiser1.wav"
-        if not any(rel.endswith(ext) for ext in [".wav", ".mp3", ".mp4", ".ogg", ".flac", ".m4a"]):
-            rel = f"{rel}.wav"
-
-        sf_path = sfx_base / rel
-        if not sf_path.exists():
-            sf_path = sfx_base / "raisers" / Path(rel).name
-        if not sf_path.exists():
-            matches = list(sfx_base.rglob(Path(rel).name))
-            if matches:
-                sf_path = matches[0]
-
-        if sf_path.exists():
-            inputs.extend(["-i", str(sf_path)])
-            s_idx = (len(inputs) // 2) - 1
-            vol = float(trk.get("volume", 0.80))
-            start_s = float(trk.get("start_s", 0.0))
-            trim_s = float(trk.get("trim_start_s", 0.0))
-
-            f_parts = ["aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo"]
-            if trim_s > 0.01:
-                f_parts.append(f"atrim=start={trim_s:.3f},asetpts=PTS-STARTPTS")
-            if start_s > 0.01:
-                start_ms = int(round(start_s * 1000))
-                f_parts.append(f"adelay={start_ms}|{start_ms}")
-            f_parts.append(f"volume={vol:.2f}")
-
-            filter_str = f"[{s_idx}:a]" + ",".join(f_parts) + f"[sfx_{idx}]"
-            audio_prep_filters.append(filter_str)
-            amix_inputs.append(f"[sfx_{idx}]")
-
-    if not amix_inputs:
-        amix_inputs.append("[0:a]")
-
-    audio_chain = ";".join(audio_prep_filters)
-    audio_mix = f";{''.join(amix_inputs)}amix=inputs={len(amix_inputs)}:duration=first:dropout_transition=0:normalize=0[aout]"
-    audio_filter = f"{audio_chain}{audio_mix}"
+    run_dir = _new_render_run_dir(sess_dir / "render_tmp", f"remix_{sess_dir.name}")
+    master_wav = run_dir / "master_audio.wav"
+    audio_info = _render_master_audio(
+        voice_source,
+        gameplay_source if bg_vol > 0.001 else None,
+        bg_vol,
+        sfx_specs,
+        master_wav,
+        run_dir,
+        duration=None,
+        ducking=ducking,
+        normalize=normalize,
+    )
+    remix_warnings.extend(audio_info.get("warnings", []))
 
     remix_filename = f"{video_path.stem}_remixed{video_path.suffix}"
     remix_path = video_path.parent / remix_filename
+    _mux_video_with_master(video_path, master_wav, remix_path)
 
-    cmd = [
-        FFMPEG_CMD, "-y",
-        *inputs,
-        "-filter_complex", audio_filter,
-        "-map", "0:v",
-        "-map", "[aout]",
-        "-c:v", "copy",
-        "-c:a", "aac",
-        "-b:a", "320k",
-        "-movflags", "+faststart",
-        str(remix_path),
-    ]
-
-    _run_ffmpeg_cmd(cmd, "Remezcla de pista de audio en vídeo exportado")
-
-    # Export/update master_audio.mp3 in session cache as well
-    cmd_audio = [
-        FFMPEG_CMD, "-y",
-        *inputs,
-        "-filter_complex", audio_filter,
-        "-map", "[aout]",
-        "-c:a", "libmp3lame",
-        "-b:a", "320k",
-        str(sess_dir / "master_audio.mp3"),
-    ]
-    try:
-        _run_ffmpeg_cmd(cmd_audio, "Remezcla de master_audio.mp3")
-    except Exception as e:
-        logger.warning(f"Error actualizando master_audio.mp3 re-mezclado: {e}")
+    # Browser preview of the new master in the session cache.
+    _encode_preview_mp3(master_wav, sess_dir / "master_audio.mp3", run_dir)
+    shutil.rmtree(run_dir, ignore_errors=True)
 
     remix_url = output_url(remix_path, root=BASE_DIR / "output")
     step5_data["video_url"] = remix_url
@@ -4437,9 +5120,25 @@ def remix_promov3_audio_sfx(
     step5_data["master_audio_url"] = f"/media/temp/v3_cache/{sess_dir.name}/master_audio.mp3"
     step5_data["filename"] = remix_filename
     step5_data["remixed_sfx_tracks"] = sfx_tracks
+    step5_data["gameplay_volume"] = round(bg_vol * 100, 1)
+    step5_data["audio_ducking"] = ducking
+    step5_data["audio_normalize"] = normalize
+    # Session recovery reads render_options first: keep it in step with the remix.
+    if isinstance(step5_data.get("render_options"), dict):
+        step5_data["render_options"]["audio_ducking"] = ducking
+        step5_data["render_options"]["audio_normalize"] = normalize
+    step5_data["audio_normalized"] = bool(audio_info.get("normalized"))
+    step5_data["audio_ducking_applied"] = bool(audio_info.get("ducking_applied"))
+    step5_data["audio_normalization_mode"] = audio_info.get("normalization_mode")
+    step5_data["measured_loudness"] = audio_info.get("measured_loudness")
+    merged_warnings = list(step5_data.get("warnings") or [])
+    for w in remix_warnings:
+        if w not in merged_warnings:
+            merged_warnings.append(w)
+    step5_data["warnings"] = merged_warnings
+    step5_data["remix_warnings"] = remix_warnings
 
     with open(step5_file, "w", encoding="utf-8") as f:
         json.dump(step5_data, f, indent=2, ensure_ascii=False)
 
     return step5_data
-

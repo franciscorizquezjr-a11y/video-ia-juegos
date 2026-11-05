@@ -325,6 +325,260 @@ def normalize_category(val: Any, allowed: Set[str], fallback: str = "CUSTOM") ->
 
 
 # =============================================================================
+# 1b. OPENING MODES (hook_type) & SPEECH-RATE WORD BUDGET
+# =============================================================================
+# hook_type values. "steam_new_game" stays the default (required by Trapster campaigns).
+HOOK_TYPE_STEAM_NEW_GAME = "steam_new_game"
+HOOK_TYPE_SO_IN_THIS_NEW_GAME = "so_in_this_new_game"
+HOOK_TYPE_DIRECT = "direct"      # no formulaic opener: the first words already state the USP
+HOOK_TYPE_CUSTOM = "custom"      # the script starts exactly with the creator's opening_text
+HOOK_TYPES: Tuple[str, ...] = (
+    HOOK_TYPE_STEAM_NEW_GAME,
+    HOOK_TYPE_SO_IN_THIS_NEW_GAME,
+    HOOK_TYPE_DIRECT,
+    HOOK_TYPE_CUSTOM,
+)
+
+# Effective spoken rate including breathing/pauses at 1x voice speed.
+WORDS_PER_SECOND_AT_1X = 2.4
+DEFAULT_SPEECH_SPEED = 1.12
+SPEECH_SPEED_MIN = 0.7   # ElevenLabs voice speed range
+SPEECH_SPEED_MAX = 1.2
+DIRECT_HOOK_MAX_WORDS = 12
+DEFAULT_HOOK_MAX_WORDS = 14
+
+_OPENER_HEAD = (
+    r"(?:so\s+)?in\s+this(?:\s+brand)?\s+new"
+    r"|here(?:'s|’s|s|\s+is)\s+(?:a|an)(?:\s+brand)?\s+new"
+    r"|there(?:'s|’s|s|\s+is)\s+(?:a|an)(?:\s+brand)?\s+new"
+    r"|check\s+out\s+this(?:\s+brand)?\s+new"
+    r"|this\s+is\s+(?:a|an)(?:\s+brand)?\s+new"
+    r"|imagine\s+(?:a|an)(?:\s+brand)?(?:\s+new)?"
+)
+# "<formula> [up to 3 words] game" at the very start of a script.
+_STRIP_OPENER_RE = re.compile(r"^\s*(?:" + _OPENER_HEAD + r")\s+(?:[\w\-]+\s+){0,3}?game\b", re.IGNORECASE)
+_FORMULA_START_RE = re.compile(r"^\s*[\"'“]?\s*(?:" + _OPENER_HEAD + r"|imagine|what\s+if)\b", re.IGNORECASE)
+
+_TOKEN_RE = re.compile(r"[^\W_]+(?:['’][^\W_]+)*", re.UNICODE)
+# Only used to compare an opener with a script ("Here is" == "Here's").
+_COMPARE_CONTRACTIONS: Dict[str, Tuple[str, ...]] = {
+    "heres": ("here", "is"), "theres": ("there", "is"), "thats": ("that", "is"),
+    "whats": ("what", "is"), "whos": ("who", "is"), "wheres": ("where", "is"),
+    "hows": ("how", "is"), "its": ("it", "is"), "lets": ("let", "us"),
+    "youre": ("you", "are"), "theyre": ("they", "are"), "im": ("i", "am"),
+    "ive": ("i", "have"), "youve": ("you", "have"), "youll": ("you", "will"),
+    "dont": ("do", "not"), "doesnt": ("does", "not"), "didnt": ("did", "not"),
+    "cant": ("can", "not"), "cannot": ("can", "not"), "isnt": ("is", "not"),
+    "arent": ("are", "not"),
+}
+_CONNECTOR_WORDS = {
+    "where", "that", "with", "about", "and", "but", "or", "so", "because", "while", "when",
+    "if", "to", "the", "a", "an", "of", "in", "on", "for", "as", "than", "then", "until",
+    "who", "which", "whose", "like", "into", "from", "your", "my", "our", "this",
+}
+_COMMON_STARTERS = {
+    "you", "your", "the", "a", "an", "this", "these", "those", "it", "it's", "its", "every",
+    "each", "one", "there", "they", "their", "we", "our", "and", "but", "so", "now", "then",
+    "when", "if", "as", "all", "everyone", "everything", "nobody", "no", "some", "here",
+}
+
+
+def normalize_opening_text(opening_text: Any) -> str:
+    """Single-line, whitespace-collapsed opening text (empty when not provided)."""
+    if not opening_text:
+        return ""
+    return re.sub(r"\s+", " ", str(opening_text)).strip()[:300]
+
+
+def resolve_hook_type(hook_type: Any, opening_text: Any = "") -> str:
+    """Normalizes hook_type. Unknown values and "custom" without text use the default."""
+    mode = str(hook_type or "").strip().lower()
+    if mode not in HOOK_TYPES:
+        return HOOK_TYPE_STEAM_NEW_GAME
+    if mode == HOOK_TYPE_CUSTOM and not normalize_opening_text(opening_text):
+        logger.warning("hook_type 'custom' without opening_text: using the default Steam opener.")
+        return HOOK_TYPE_STEAM_NEW_GAME
+    return mode
+
+
+def normalize_speech_speed(speech_speed: Any) -> float:
+    """Voice speed used for the word budget, clamped to the ElevenLabs range."""
+    try:
+        value = float(speech_speed)
+    except (TypeError, ValueError):
+        return DEFAULT_SPEECH_SPEED
+    if value != value or value in (float("inf"), float("-inf")):
+        return DEFAULT_SPEECH_SPEED
+    return min(SPEECH_SPEED_MAX, max(SPEECH_SPEED_MIN, value))
+
+
+def words_per_second(speech_speed: Any = DEFAULT_SPEECH_SPEED) -> float:
+    return WORDS_PER_SECOND_AT_1X * normalize_speech_speed(speech_speed)
+
+
+def starts_with_formula_opener(text: str) -> bool:
+    """True when text opens with a formula ("Here's a new...", "So in this new...", "Imagine...")."""
+    return bool(_FORMULA_START_RE.match(text or ""))
+
+
+def starts_with_formula_game_opener(text: str) -> bool:
+    """True when text opens with a full "<formula> [up to 3 words] game" opener
+    ("Here's a new co-op game", "So in this new survival game") — the same family
+    strip_formulaic_opener / ensure_steam_hook_prefix recognise."""
+    return bool(_STRIP_OPENER_RE.match(text or ""))
+
+
+def _capitalize_first(text: str) -> str:
+    for i, ch in enumerate(text):
+        if ch.isalpha():
+            return text[:i] + ch.upper() + text[i + 1:]
+        if not ch.isspace() and ch not in "\"'“‘(":
+            break
+    return text
+
+
+def _soft_lower_first(text: str) -> str:
+    """Lowercase the first word only when it is a common word (keeps names and "I")."""
+    m = re.match(r"\s*([A-Za-z][\w'’]*)", text)
+    if m and m.group(1).lower().replace("’", "'") in _COMMON_STARTERS:
+        start = m.start(1)
+        return text[:start] + text[start].lower() + text[start + 1:]
+    return text
+
+
+def strip_formulaic_opener(text: str) -> str:
+    """Removes a leading "Here's a new Steam game" / "So in this new game" style opener.
+
+    Conservative: the opener is only removed when the rest still reads as a sentence
+    ("...game; you build" / "...game. You build" / "...game where you build" /
+    "...game that lets you build"). Otherwise the text is returned unchanged.
+    """
+    original = (text or "").strip()
+    m = _STRIP_OPENER_RE.match(original)
+    if not m:
+        return original
+    rest = original[m.end():]
+    body = None
+    punct = re.match(r"^\s*[;:,.!?—–-]+\s*(.*)$", rest, re.DOTALL)
+    if punct:
+        body = punct.group(1)
+    else:
+        connector = re.match(r"^\s+(?:where|in\s+which)\s+(.*)$", rest, re.IGNORECASE | re.DOTALL)
+        if connector:
+            body = connector.group(1)
+        else:
+            lets = re.match(r"^\s+that\s+(?:lets|has|makes)\s+you\s+(.*)$", rest, re.IGNORECASE | re.DOTALL)
+            if lets:
+                body = "you " + lets.group(1)
+    if body is None or not re.search(r"\w", body):
+        return original
+    return _capitalize_first(body.strip())
+
+
+def _canonical_tokens(text: str) -> List[Tuple[str, int, int]]:
+    """(token, index of the source token, char end of the source token)."""
+    out: List[Tuple[str, int, int]] = []
+    for idx, m in enumerate(_TOKEN_RE.finditer(text or "")):
+        tok = m.group(0).lower().replace("’", "").replace("'", "")
+        for piece in _COMPARE_CONTRACTIONS.get(tok, (tok,)):
+            out.append((piece, idx, m.end()))
+    return out
+
+
+def opening_prefix_end(text: str, opening_text: str) -> Optional[int]:
+    """Char index where the opening ends in text, or None when text does not start with it.
+    Comparison ignores case, punctuation and contractions ("Here is" == "Here's")."""
+    op = [t for t, _, _ in _canonical_tokens(opening_text)]
+    if not op:
+        return None
+    tx = _canonical_tokens(text)
+    if len(tx) < len(op) or [t for t, _, _ in tx[:len(op)]] != op:
+        return None
+    # The opener must end on a whole source token ("here" must not match "here's").
+    if len(tx) > len(op) and tx[len(op)][1] == tx[len(op) - 1][1]:
+        return None
+    return tx[len(op) - 1][2]
+
+
+def starts_with_opening(text: str, opening_text: str) -> bool:
+    return opening_prefix_end(text, normalize_opening_text(opening_text)) is not None
+
+
+def _join_opening(opening: str, body: str) -> str:
+    if re.search(r"[.!?…][\"'”’)]*$", opening):
+        return f"{opening} {_capitalize_first(body)}"
+    words = re.findall(r"[A-Za-z']+", opening)
+    if opening.endswith((",", ";", ":", "—", "–", "-")) or (words and words[-1].lower() in _CONNECTOR_WORDS):
+        return f"{opening} {_soft_lower_first(body)}"
+    return f"{opening}. {_capitalize_first(body)}"
+
+
+def ensure_opening_text(text: str, opening_text: str) -> str:
+    """Returns text starting with opening_text verbatim (words, order and case).
+
+    - Already present (same words, any case/punctuation): the opener words are restored
+      exactly, keeping the script's own continuation. The opener's own non-final
+      punctuation (":", ",", ";") is restored too; a final "." / "!" / "?" is only kept
+      when the script also breaks there (so "...game where you" still reads as one sentence).
+    - Missing: the opener is prefixed with a natural join.
+    """
+    op = normalize_opening_text(opening_text)
+    body = (text or "").strip()
+    if not op:
+        return body
+    if not body:
+        return op
+    core = re.sub(r"[\s.!?;:,]+$", "", op)
+    tail = op[len(core):].strip()
+    end = opening_prefix_end(body, op)
+    if end is None:
+        return _join_opening(op, body)
+    if not core:
+        return body
+    rest = body[end:]
+    lead = re.match(r"^\s*[;:,.!?]+", rest)
+    if tail and lead:
+        after = rest[lead.end():].lstrip()
+        if re.search(r"[.!?]", tail):
+            after = _capitalize_first(after)
+        return (core + tail + (" " + after if after else "")).strip()
+    if tail and not rest.strip():
+        return core + tail
+    if tail and not re.search(r"[.!?]", tail) and rest[:1].isspace():
+        return core + tail + " " + rest.lstrip()
+    return core + rest
+
+
+def _first_words_category_for(text: str) -> Optional[str]:
+    """First-words category detected at the start of text, or None for a direct opening."""
+    t = (text or "").strip().lower().replace("’", "'")
+    checks = [
+        (r"^so in this new\b", FirstWordsTaxonomy.SO_IN_THIS_NEW),
+        (r"^in this new\b", FirstWordsTaxonomy.IN_THIS_NEW),
+        (r"^here(?:'s|s| is) (?:a|an) (?:brand )?new\b", FirstWordsTaxonomy.HERE_IS_A_NEW),
+        (r"^there(?:'s|s| is) (?:a|an) (?:brand )?new\b", FirstWordsTaxonomy.THERE_IS_A_NEW),
+        (r"^check out this\b", FirstWordsTaxonomy.CHECK_OUT_THIS),
+        (r"^this (?:is a )?new\b", FirstWordsTaxonomy.THIS_NEW),
+        (r"^imagine\b", FirstWordsTaxonomy.IMAGINE_A),
+        (r"^what if\b", FirstWordsTaxonomy.WHAT_IF),
+        (r"^you play as\b", FirstWordsTaxonomy.YOU_PLAY_AS),
+    ]
+    for pattern, category in checks:
+        if re.match(pattern, t):
+            return category
+    return None
+
+
+def hook_max_words(hook_type: Any = HOOK_TYPE_STEAM_NEW_GAME, opening_text: Any = "") -> int:
+    mode = resolve_hook_type(hook_type, opening_text)
+    if mode == HOOK_TYPE_DIRECT:
+        return DIRECT_HOOK_MAX_WORDS
+    if mode == HOOK_TYPE_CUSTOM:
+        return max(DEFAULT_HOOK_MAX_WORDS, len(normalize_opening_text(opening_text).split()) + 8)
+    return DEFAULT_HOOK_MAX_WORDS
+
+
+# =============================================================================
 # 2. PYDANTIC DATA STRUCTURES
 # =============================================================================
 
@@ -458,6 +712,114 @@ RETENTION_CORE_PRINCIPLES = """
 """
 
 
+# Fragments of the default prompt that change with the opening mode.
+_PROMPT_FIRST_WORDS = "1. First Words: Formulaic opening phrase (category: HERE_IS_A_NEW, SO_IN_THIS_NEW, IN_THIS_NEW, THIS_NEW, IMAGINE_A, WHAT_IF)."
+_PROMPT_GENRE = "2. Game Genre: Presentation of the game (category:"
+_PROMPT_HOOK_TARGET = "Target hook spoken duration: 3.0 - 5.0 seconds (10 to 14 words MAX, including the opening prefix; MUST NEVER exceed 14 words)."
+_PROMPT_USP_POSITION = "- Put that USP in the FIRST spoken sentence, immediately after the required opening phrase."
+_PROMPT_HOOK_LIMIT = "breaks the 14-word limit"
+_PROMPT_MARS_EXAMPLE = "a clearer hook is \"Here's a new Steam game where you blast tunnels through Mars.\""
+_PROMPT_EXAMPLE_TEXT = "\"text\": \"Here's a new co-op game where you weld leaks while monsters hunt.\","
+_PROMPT_EXAMPLE_FIRST_WORDS = "\"first_words\": { \"category\": \"HERE_IS_A_NEW\", \"text\": \"Here's a new\" },"
+_PROMPT_EXAMPLE_GENRE = "\"game_genre\": { \"category\": \"COOP_GAME\", \"text\": \"co-op game\" },"
+_PROMPT_EXAMPLE_FIRST_PUNCH = "\"first_punch\": { \"category\": \"COOPERATION\", \"text\": \"where you weld leaks\" },"
+_PROMPT_SECTION_2 = "=== 2. RETENTION NARRATIVE BLOCKS"
+_FORBIDDEN_OPENERS = (
+    '"Here\'s a new...", "There\'s a new...", "So in this new...", "In this new...", '
+    '"This is a new...", "Check out this...", "Imagine...", "What if..."'
+)
+
+
+def _json_str(value: str) -> str:
+    return json.dumps(value, ensure_ascii=False)
+
+
+def _apply_opening_mode_to_prompt(prompt: str, hook_mode: str, opening: str) -> str:
+    """Adapts the modular hook section and the JSON example to the selected opening mode.
+    The default steam_new_game prompt is left untouched."""
+    if hook_mode == HOOK_TYPE_SO_IN_THIS_NEW_GAME:
+        example = "So in this new co-op game, you weld leaks while monsters hunt."
+        block = (
+            "OPENING MODE: \"SO IN THIS NEW GAME\"\n"
+            "- First Words MUST use category SO_IN_THIS_NEW: begin the hook with \"So in this new\" followed by the genre "
+            "and immediately by the strongest USP (e.g. \"So in this new co-op game, you...\"). Phrasing example only.\n"
+            "- Do not stack another opener (\"Here's a new...\") before or after it.\n\n"
+        )
+        prompt = prompt.replace(_PROMPT_EXAMPLE_TEXT, f"\"text\": {_json_str(example)},")
+        prompt = prompt.replace(_PROMPT_EXAMPLE_FIRST_WORDS, "\"first_words\": { \"category\": \"SO_IN_THIS_NEW\", \"text\": \"So in this new\" },")
+        prompt = prompt.replace(_PROMPT_EXAMPLE_FIRST_PUNCH, "\"first_punch\": { \"category\": \"COOPERATION\", \"text\": \"you weld leaks\" },")
+        return prompt.replace(_PROMPT_SECTION_2, block + _PROMPT_SECTION_2, 1)
+
+    if hook_mode == HOOK_TYPE_DIRECT:
+        example = "You and your friends weld leaks while monsters hunt you."
+        block = (
+            "OPENING MODE: DIRECT (NO FORMULAIC OPENER) - OVERRIDES ANY OPENING SEEN IN REFERENCES\n"
+            f"- Do NOT start with a formulaic opener: no {_FORBIDDEN_OPENERS} and no greeting or channel intro.\n"
+            "- The first 3-5 spoken words must already show the strongest USP or payoff: the action, fantasy or consequence "
+            "the player wants (e.g. \"You fly a submarine made of trash...\" - phrasing example only, never invent mechanics).\n"
+            f"- Hook sentence: {DIRECT_HOOK_MAX_WORDS} words MAX. Name the genre only if it strengthens the promise.\n"
+            "- In the JSON hook set first_words.category = \"CUSTOM\" and first_words.text = \"\"; set game_genre.text to the exact "
+            "genre words spoken in the hook, or \"\" if the hook does not name a genre.\n\n"
+        )
+        prompt = prompt.replace(
+            _PROMPT_FIRST_WORDS,
+            "1. First Words: NONE in this mode. Do not use any formulaic opening phrase; the hook starts directly with the USP (first_words.category = CUSTOM, first_words.text = \"\").",
+        )
+        prompt = prompt.replace(_PROMPT_GENRE, "2. Game Genre (optional in this mode): Presentation of the game (category:")
+        prompt = prompt.replace(
+            _PROMPT_HOOK_TARGET,
+            f"Target hook spoken duration: 2.0 - 4.0 seconds (6 to {DIRECT_HOOK_MAX_WORDS} words MAX; MUST NEVER exceed {DIRECT_HOOK_MAX_WORDS} words).",
+        )
+        prompt = prompt.replace(
+            _PROMPT_USP_POSITION,
+            "- Put that USP in the FIRST 3-5 spoken words of the FIRST sentence: there is no opening phrase in this mode.",
+        )
+        prompt = prompt.replace(_PROMPT_HOOK_LIMIT, f"breaks the {DIRECT_HOOK_MAX_WORDS}-word limit")
+        prompt = prompt.replace(_PROMPT_MARS_EXAMPLE, "a clearer hook is \"You blast tunnels through Mars.\"")
+        prompt = prompt.replace(_PROMPT_EXAMPLE_TEXT, f"\"text\": {_json_str(example)},")
+        prompt = prompt.replace(_PROMPT_EXAMPLE_FIRST_WORDS, "\"first_words\": { \"category\": \"CUSTOM\", \"text\": \"\" },")
+        prompt = prompt.replace(_PROMPT_EXAMPLE_GENRE, "\"game_genre\": { \"category\": \"COOP_GAME\", \"text\": \"\" },")
+        prompt = prompt.replace(_PROMPT_EXAMPLE_FIRST_PUNCH, "\"first_punch\": { \"category\": \"COOPERATION\", \"text\": \"You and your friends weld leaks\" },")
+        prompt = prompt.replace("\"second_punch\": { \"category\": \"THREAT\", \"text\": \"while monsters hunt\" },",
+                                "\"second_punch\": { \"category\": \"THREAT\", \"text\": \"while monsters hunt you\" },")
+        return prompt.replace(_PROMPT_SECTION_2, block + _PROMPT_SECTION_2, 1)
+
+    if hook_mode == HOOK_TYPE_CUSTOM:
+        op_words = len(opening.split())
+        limit = hook_max_words(HOOK_TYPE_CUSTOM, opening)
+        core = re.sub(r"[\s.!?;:,]+$", "", opening)
+        example = ensure_opening_text("You and your friends weld leaks while monsters hunt.", opening)
+        block = (
+            "OPENING MODE: CUSTOM OPENING TEXT (MANDATORY) - OVERRIDES ANY OTHER OPENING RULE OR REFERENCE\n"
+            f"- The script (hook.text and sentence_01.text) MUST begin EXACTLY with this opening text, verbatim: {_json_str(opening)}\n"
+            "- Same words, same order. Do not paraphrase, translate, shorten, repeat or quote it, and do not add another "
+            "formulaic opener before or after it.\n"
+            "- Then continue naturally with the strongest USP, so the opening and the promise read as one smooth spoken line.\n"
+            f"- Word limits include the opening text ({op_words} words): hook {limit} words MAX and the total word target below.\n"
+            f"- In the JSON hook set first_words.category = \"CUSTOM\" and first_words.text = {_json_str(core)}.\n\n"
+        )
+        prompt = prompt.replace(
+            _PROMPT_FIRST_WORDS,
+            f"1. First Words: the creator's REQUIRED opening text, verbatim (category: CUSTOM): {_json_str(opening)}",
+        )
+        prompt = prompt.replace(
+            _PROMPT_HOOK_TARGET,
+            f"Target hook spoken duration: 3.0 - 5.0 seconds (10 to {limit} words MAX, including the required opening text; MUST NEVER exceed {limit} words).",
+        )
+        prompt = prompt.replace(_PROMPT_HOOK_LIMIT, f"breaks the {limit}-word limit")
+        prompt = prompt.replace(
+            _PROMPT_MARS_EXAMPLE,
+            "a clearer hook is " + _json_str(ensure_opening_text("You blast tunnels through Mars.", opening)),
+        )
+        prompt = prompt.replace(_PROMPT_EXAMPLE_TEXT, f"\"text\": {_json_str(example)},")
+        prompt = prompt.replace(_PROMPT_EXAMPLE_FIRST_WORDS, f"\"first_words\": {{ \"category\": \"CUSTOM\", \"text\": {_json_str(core)} }},")
+        prompt = prompt.replace(_PROMPT_EXAMPLE_GENRE, "\"game_genre\": { \"category\": \"COOP_GAME\", \"text\": \"\" },")
+        prompt = prompt.replace(_PROMPT_EXAMPLE_FIRST_PUNCH, "\"first_punch\": { \"category\": \"COOPERATION\", \"text\": \"you and your friends weld leaks\" },")
+        return prompt.replace(_PROMPT_SECTION_2, block + _PROMPT_SECTION_2, 1)
+
+    return prompt
+
+
 def build_retention_script_prompt(
     game_name: str,
     target_duration: float = 30.0,
@@ -467,15 +829,45 @@ def build_retention_script_prompt(
     viral_references: str = "",
     script_mode: str = "normal",
     game_genre: str = "",
+    hook_type: str = HOOK_TYPE_STEAM_NEW_GAME,
+    opening_text: str = "",
+    speech_speed: float = DEFAULT_SPEECH_SPEED,
 ) -> str:
     """
     Constructs the high-retention structured prompt enforcing Hook modularity,
     retention architecture, sentence-level tagging, and open loop tracking.
+
+    hook_type: "steam_new_game" (default formula), "so_in_this_new_game",
+    "direct" (no formulaic opener) or "custom" (starts exactly with opening_text).
+    speech_speed: the voice speed that will be used; it sets the word budget.
     """
-    # Effective spoken rate includes breathing/pauses: 2.4 words/s at 1x.
-    # At the default 1.12x this yields ~80 words / 30s; allow shorter phrasing.
-    max_words = max(1, int(target_duration * 2.4 * 1.12))
+    speed = normalize_speech_speed(speech_speed)
+    opening = normalize_opening_text(opening_text)
+    hook_mode = resolve_hook_type(hook_type, opening)
+    if script_mode == "caveman" and hook_mode != HOOK_TYPE_CUSTOM:
+        # The caveman hook formula replaces the opener (a custom opener still leads).
+        hook_mode = HOOK_TYPE_STEAM_NEW_GAME
+    # Effective spoken rate includes breathing/pauses: 2.4 words/s at 1x, scaled by the
+    # voice speed. At 1.12x this yields ~80 words / 30s; allow shorter phrasing.
+    max_words = max(1, int(target_duration * WORDS_PER_SECOND_AT_1X * speed))
     min_words = max(1, int(max_words * 0.875))
+    hook_limit = hook_max_words(hook_mode, opening)
+    default_hook_line = (
+        f"- Target Hook Sentence: 10 to 14 words MAX, including the opening prefix (target at most 5.0 seconds at {speed:g}x speed). "
+        "End it with a period, exclamation mark or question mark before sentence two."
+    )
+    if hook_mode == HOOK_TYPE_DIRECT:
+        hook_line = (
+            f"- Target Hook Sentence: 6 to {DIRECT_HOOK_MAX_WORDS} words MAX, with NO opening prefix (target at most 4.0 seconds at {speed:g}x speed). "
+            "End it with a period, exclamation mark or question mark before sentence two."
+        )
+    elif hook_mode == HOOK_TYPE_CUSTOM:
+        hook_line = (
+            f"- Target Hook Sentence: 10 to {hook_limit} words MAX, including the required opening text (target at most 5.0 seconds at {speed:g}x speed). "
+            "End it with a period, exclamation mark or question mark before sentence two."
+        )
+    else:
+        hook_line = default_hook_line
 
     prompt = f"""You are an elite viral gaming copywriter and retention director for TikTok, Reels, and YouTube Shorts (Trapster).
 Your objective is to generate a structured, viral short-form promo script in natural spoken English for '{game_name}'.
@@ -559,8 +951,8 @@ CRITICAL: You must strictly adhere to this exact linguistic profile, tone of voi
    - Never use formal written transitions like "Furthermore", "Moreover", "In addition", or "However".
 
 === DURATION & WORD COUNT ===
-- Target Total Words: {min_words} to {max_words} words for approximately {target_duration:g}s at 1.12x speed (estimated 2.69 words/s including natural pauses).
-- Target Hook Sentence: 10 to 14 words MAX, including the opening prefix (target at most 5.0 seconds at 1.15x speed). End it with a period, exclamation mark or question mark before sentence two.
+- Target Total Words: {min_words} to {max_words} words for approximately {target_duration:g}s at {speed:g}x speed (estimated {WORDS_PER_SECOND_AT_1X * speed:.2f} words/s including natural pauses).
+{hook_line}
 - Tone: {tone}
 
 === GAME INFORMATION ===
@@ -615,6 +1007,8 @@ You must respond ONLY with a valid JSON object adhering to this exact schema (no
   }}
 }}
 """
+    if script_mode != "caveman":
+        prompt = _apply_opening_mode_to_prompt(prompt, hook_mode, opening)
     if script_mode == "caveman":
         hook_rules = """=== 1. CAVEMAN HOOK (0 - 5.0s) ===
 The exact opening formula is: "New [game genre] game explained by caveman."
@@ -626,6 +1020,11 @@ first_punch.text = "explained by caveman", second_punch = null.
 Keep existing category enums. Put the first gameplay surprise in sentence_02.
 
 """
+        if hook_mode == HOOK_TYPE_CUSTOM:
+            hook_rules += (
+                "REQUIRED OPENING TEXT: the script MUST begin EXACTLY with this creator-provided text, verbatim, "
+                f"before the caveman formula: {_json_str(opening)}\n\n"
+            )
         start = prompt.index("=== 1. MODULAR HOOK")
         end = prompt.index("=== 2. RETENTION")
         prompt = prompt[:start] + hook_rules + prompt[end:]
@@ -653,8 +1052,10 @@ overrides Buddy Hype, complex connectors and compound sentences in all reference
 """
         prompt = prompt[:start] + caveman_rules + prompt[end:]
         prompt = prompt.replace(
-            "- Target Hook Sentence: 10 to 14 words MAX, including the opening prefix (target at most 5.0 seconds at 1.15x speed). End it with a period, exclamation mark or question mark before sentence two.",
-            "- Target Hook Sentence: use only the exact caveman formula, ending with a period.",
+            hook_line,
+            "- Target Hook Sentence: use only the exact caveman formula, ending with a period."
+            if hook_mode != HOOK_TYPE_CUSTOM else
+            "- Target Hook Sentence: the required opening text, then the exact caveman formula, ending with a period.",
         )
         prompt += f"\n\nGenre supplied by creator: {game_genre.strip() or 'Infer a short accurate genre from the game information.'}\n"
         prompt += "The JSON above illustrates field names only. Replace ALL example text with caveman phrasing and the exact caveman hook."
@@ -665,15 +1066,25 @@ overrides Buddy Hype, complex connectors and compound sentences in all reference
 # 4. VALIDATION ENGINE
 # =============================================================================
 
-def validate_retention_script(data: Dict[str, Any]) -> Tuple[bool, List[str], List[str]]:
+def validate_retention_script(
+    data: Dict[str, Any],
+    hook_type: str = HOOK_TYPE_STEAM_NEW_GAME,
+    opening_text: str = "",
+) -> Tuple[bool, List[str], List[str]]:
     """
     Validates a structured retention script dictionary.
     Returns: (is_valid, fatal_errors, quality_warnings)
     - Fatal errors invalidate the structure and trigger recovery.
     - Quality warnings are diagnostic insights for future analytics.
+    hook_type "direct" accepts hooks without a formulaic opener (no first_words/genre
+    required); "custom" checks that the script starts with opening_text.
     """
     errors: List[str] = []
     warnings: List[str] = []
+    opening = normalize_opening_text(opening_text)
+    hook_mode = resolve_hook_type(hook_type, opening)
+    direct_like = hook_mode in (HOOK_TYPE_DIRECT, HOOK_TYPE_CUSTOM)
+    max_hook_words = hook_max_words(hook_mode, opening)
 
     if not isinstance(data, dict):
         return False, ["Script data is not a valid dictionary."], []
@@ -690,15 +1101,17 @@ def validate_retention_script(data: Dict[str, Any]) -> Tuple[bool, List[str], Li
             w_count = len(hook_text.split())
             if w_count < 5:
                 warnings.append(f"Hook text is very short ({w_count} words).")
-            elif w_count > 14:
+            elif w_count > max_hook_words:
                 warnings.append(f"Hook text exceeds recommended maximum ({w_count} words).")
+            if hook_mode == HOOK_TYPE_DIRECT and starts_with_formula_opener(hook_text):
+                warnings.append("Direct opening selected but the hook starts with a formulaic opener.")
 
         fw = hook.get("first_words")
-        if not isinstance(fw, dict) or not fw.get("text"):
+        if not direct_like and (not isinstance(fw, dict) or not fw.get("text")):
             warnings.append("Hook missing explicit 'first_words' component.")
 
         gg = hook.get("game_genre")
-        if not isinstance(gg, dict) or not gg.get("text"):
+        if not direct_like and (not isinstance(gg, dict) or not gg.get("text")):
             warnings.append("Hook missing explicit 'game_genre' component.")
 
         fp = hook.get("first_punch")
@@ -748,6 +1161,15 @@ def validate_retention_script(data: Dict[str, Any]) -> Tuple[bool, List[str], Li
         unresolved = seen_loop_ids - resolved_loop_ids
         if unresolved:
             warnings.append(f"Curiosity loop(s) left unresolved in script: {list(unresolved)}.")
+
+    if hook_mode == HOOK_TYPE_CUSTOM:
+        first_text = ""
+        if isinstance(sentences, list) and sentences and isinstance(sentences[0], dict):
+            first_text = sentences[0].get("text") or ""
+        if not first_text and isinstance(hook, dict):
+            first_text = hook.get("text") or ""
+        if first_text and not starts_with_opening(first_text, opening):
+            warnings.append("Script does not start with the required opening text.")
 
     is_valid = len(errors) == 0
     return is_valid, errors, warnings
@@ -974,7 +1396,7 @@ def populate_clauses_and_timings(
     # B1. Hook Parts
     if retention.hook:
         fw = retention.hook.first_words
-        if fw:
+        if fw and (fw.text or "").strip():  # direct openings have no first words
             w_c = max(1, len(fw.text.split()))
             dur = round(max(0.4, w_c * sec_per_word), 2)
             fw.start_time = round(curr_time, 2)
@@ -983,7 +1405,7 @@ def populate_clauses_and_timings(
             curr_time += dur
 
         gg = retention.hook.game_genre
-        if gg:
+        if gg and (gg.text or "").strip():  # genre is optional in direct openings
             w_c = max(1, len(gg.text.split()))
             dur = round(max(0.5, w_c * sec_per_word), 2)
             gg.start_time = round(curr_time, 2)
@@ -1049,6 +1471,8 @@ def parse_and_repair_retention_script(
     game_name: str = "Game",
     target_duration: float = 30.0,
     words: Optional[List[Dict[str, Any]]] = None,
+    hook_type: str = HOOK_TYPE_STEAM_NEW_GAME,
+    opening_text: str = "",
 ) -> RetentionScript:
     """
     Robust parser and fallback builder:
@@ -1057,7 +1481,14 @@ def parse_and_repair_retention_script(
        to dissect the text into hook components, sentences, clauses, and retention blocks.
     3. Guarantees a fully valid RetentionScript object with detailed clause breakdown
        and timestamps for both Hook components and clauses.
+
+    Opening modes (hook_type): "direct" never forces HERE_IS_A_NEW and removes a stray
+    formula opener; "custom" prefixes opening_text when the model omitted it. The text is
+    only rewritten while no word alignment is given (voiced scripts must match the audio).
     """
+    opening = normalize_opening_text(opening_text)
+    hook_mode = resolve_hook_type(hook_type, opening)
+    direct_like = hook_mode in (HOOK_TYPE_DIRECT, HOOK_TYPE_CUSTOM)
     parsed_dict: Optional[Dict[str, Any]] = None
 
     if isinstance(raw_content, dict):
@@ -1083,18 +1514,20 @@ def parse_and_repair_retention_script(
             fp_raw = hook_raw.get("first_punch", {})
             sp_raw = hook_raw.get("second_punch")
 
+            # Direct/custom openings have no formula: never default to HERE_IS_A_NEW.
+            fw_fallback = FirstWordsTaxonomy.CUSTOM if direct_like else FirstWordsTaxonomy.HERE_IS_A_NEW
             hook_obj = HookStructure(
                 text=hook_raw.get("text", "").strip(),
                 first_words=FirstWordsComponent(
-                    category=normalize_category(fw_raw.get("category"), FirstWordsTaxonomy.ALL, FirstWordsTaxonomy.HERE_IS_A_NEW),
-                    text=fw_raw.get("text", "Here's a new"),
+                    category=normalize_category(fw_raw.get("category"), FirstWordsTaxonomy.ALL, fw_fallback),
+                    text=(fw_raw.get("text") or "") if direct_like else fw_raw.get("text", "Here's a new"),
                     start_time=fw_raw.get("start_time"),
                     end_time=fw_raw.get("end_time"),
                     duration=fw_raw.get("duration"),
                 ),
                 game_genre=GameGenreComponent(
                     category=normalize_category(gg_raw.get("category"), GameGenreTaxonomy.ALL, GameGenreTaxonomy.COOP_GAME),
-                    text=gg_raw.get("text", "game"),
+                    text=gg_raw.get("text", "" if direct_like else "game"),
                     start_time=gg_raw.get("start_time"),
                     end_time=gg_raw.get("end_time"),
                     duration=gg_raw.get("duration"),
@@ -1167,6 +1600,8 @@ def parse_and_repair_retention_script(
                 cta_type=ending_raw.get("cta_type", "STEAM_WISHLIST"),
             )
 
+            repair_notes = _repair_opening(hook_obj, sentences_list, hook_mode, opening, allow_text_edits=not words)
+
             clean_text = " ".join([s.text for s in sentences_list if s.text]).strip()
             if not clean_text and hook_obj.text:
                 clean_text = hook_obj.text
@@ -1178,7 +1613,7 @@ def parse_and_repair_retention_script(
                 "hook": hook_obj.model_dump(),
                 "sentences": [s.model_dump() for s in sentences_list],
                 "ending": ending_obj.model_dump(),
-            })
+            }, hook_type=hook_mode, opening_text=opening)
 
             ret_script = RetentionScript(
                 hook=hook_obj,
@@ -1187,7 +1622,7 @@ def parse_and_repair_retention_script(
                 clean_script_text=clean_text,
                 word_count=w_count,
                 estimated_duration=est_dur,
-                validation_warnings=warnings + errors,
+                validation_warnings=warnings + errors + repair_notes,
             )
 
             # Ensure clauses & speech/estimated timings are populated
@@ -1198,7 +1633,76 @@ def parse_and_repair_retention_script(
 
     # Rule-Based Heuristic Fallback
     raw_str = str(raw_content) if raw_content else ""
-    return _build_heuristic_retention_script(raw_str, game_name, target_duration, words=words)
+    return _build_heuristic_retention_script(raw_str, game_name, target_duration, words=words,
+                                             hook_type=hook_mode, opening_text=opening)
+
+
+def _repair_opening(
+    hook_obj: HookStructure,
+    sentences_list: List[SentenceStructure],
+    hook_mode: str,
+    opening: str,
+    allow_text_edits: bool = True,
+) -> List[str]:
+    """Applies the opening mode to a parsed script in place. Returns repair notes."""
+    notes: List[str] = []
+    if hook_mode not in (HOOK_TYPE_DIRECT, HOOK_TYPE_CUSTOM):
+        return notes
+    first = sentences_list[0] if sentences_list else None
+    fw = hook_obj.first_words
+
+    if hook_mode == HOOK_TYPE_CUSTOM:
+        core = re.sub(r"[\s.!?;:,]+$", "", opening)
+        source = first.text if first is not None else hook_obj.text
+        was_present = starts_with_opening(source, opening)
+        if allow_text_edits:
+            fixed = ensure_opening_text(source, opening)
+            if fixed != source:
+                if first is not None:
+                    hook_matches_first = hook_obj.text.strip() == first.text.strip()
+                    first.text = fixed
+                    first.clauses = []
+                    if hook_matches_first or not starts_with_opening(hook_obj.text, opening):
+                        hook_obj.text = ensure_opening_text(hook_obj.text or source, opening)
+                else:
+                    hook_obj.text = fixed
+                if not was_present:
+                    notes.append("Required opening text was missing and has been added at the start.")
+        now_present = starts_with_opening(first.text if first is not None else hook_obj.text, opening)
+        # Only describe the opener as first words when it is really in the (spoken) text.
+        if now_present and (not was_present or not (fw.text or "").strip()):
+            category = _first_words_category_for(opening) or FirstWordsTaxonomy.CUSTOM
+            hook_obj.first_words = FirstWordsComponent(category=category, text=core)
+        return notes
+
+    # Direct: no formula opener, never a forced HERE_IS_A_NEW.
+    if allow_text_edits:
+        targets = [first] if first is not None else []
+        stripped_any = False
+        for sentence in targets:
+            stripped = strip_formulaic_opener(sentence.text)
+            if stripped != sentence.text.strip():
+                if hook_obj.text.strip() == sentence.text.strip():
+                    hook_obj.text = stripped
+                sentence.text = stripped
+                sentence.clauses = []
+                stripped_any = True
+        stripped_hook = strip_formulaic_opener(hook_obj.text)
+        if stripped_hook != hook_obj.text.strip():
+            hook_obj.text = stripped_hook
+            stripped_any = True
+        if stripped_any:
+            notes.append("Formulaic opener removed for the direct opening mode.")
+    hook_text = (hook_obj.text or (first.text if first is not None else "")).strip()
+    lowered = hook_text.lower()
+    if fw.text and not lowered.startswith(fw.text.strip().lower()):
+        fw.text = ""
+    if not (fw.text or "").strip():
+        fw.category = FirstWordsTaxonomy.CUSTOM
+    gg = hook_obj.game_genre
+    if gg.text and gg.text.strip().lower() not in lowered:
+        gg.text = ""
+    return notes
 
 
 def _build_heuristic_retention_script(
@@ -1206,13 +1710,35 @@ def _build_heuristic_retention_script(
     game_name: str,
     target_duration: float,
     words: Optional[List[Dict[str, Any]]] = None,
+    hook_type: str = HOOK_TYPE_STEAM_NEW_GAME,
+    opening_text: str = "",
 ) -> RetentionScript:
     """Heuristic fallback that extracts hook components, sentences, and clauses from raw plain text."""
+    opening = normalize_opening_text(opening_text)
+    hook_mode = resolve_hook_type(hook_type, opening)
+    direct_like = hook_mode in (HOOK_TYPE_DIRECT, HOOK_TYPE_CUSTOM)
+    repair_notes: List[str] = []
     # Clean up markdown / quotes
     cleaned = re.sub(r'```.*?```', '', text, flags=re.DOTALL)
     cleaned = re.sub(r'[\r\n]+', ' ', cleaned).strip().strip('"').strip("'")
     if not cleaned:
-        cleaned = f"Here's a new game called {game_name} where you jump straight into the action. Build, survive, and explore with your squad. Wishlist on Steam!"
+        if direct_like:
+            cleaned = f"You jump straight into the action in {game_name}. Build, survive, and explore with your squad. Wishlist on Steam!"
+        else:
+            cleaned = f"Here's a new game called {game_name} where you jump straight into the action. Build, survive, and explore with your squad. Wishlist on Steam!"
+
+    # Opening modes may adjust the text while it has not been voiced yet.
+    if not words:
+        if hook_mode == HOOK_TYPE_CUSTOM:
+            had_opening = starts_with_opening(cleaned, opening)
+            cleaned = ensure_opening_text(cleaned, opening)
+            if not had_opening:
+                repair_notes.append("Required opening text was missing and has been added at the start.")
+        elif hook_mode == HOOK_TYPE_DIRECT:
+            stripped = strip_formulaic_opener(cleaned)
+            if stripped != cleaned:
+                cleaned = stripped
+                repair_notes.append("Formulaic opener removed for the direct opening mode.")
 
     # Split into sentences
     raw_sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', cleaned) if s.strip()]
@@ -1224,7 +1750,19 @@ def _build_heuristic_retention_script(
     # Heuristic Hook Extraction
     fw_cat = FirstWordsTaxonomy.HERE_IS_A_NEW
     fw_text = "Here's a new"
-    if re.search(r"so in this new", hook_sentence, re.I):
+    if direct_like:
+        # Only report first words that are really spoken; never assume HERE_IS_A_NEW.
+        if hook_mode == HOOK_TYPE_CUSTOM and starts_with_opening(cleaned, opening):
+            fw_cat = _first_words_category_for(opening) or FirstWordsTaxonomy.CUSTOM
+            fw_text = re.sub(r"[\s.!?;:,]+$", "", opening)
+        else:
+            detected = _first_words_category_for(hook_sentence)
+            fw_cat = detected or FirstWordsTaxonomy.CUSTOM
+            fw_text = ""
+            if detected:
+                m = re.match(r"\s*((?:\S+\s+){0,3}?new\b|imagine\b|what\s+if\b|check\s+out\s+this\b|you\s+play\s+as\b)", hook_sentence, re.I)
+                fw_text = m.group(1).strip() if m else ""
+    elif re.search(r"so in this new", hook_sentence, re.I):
         fw_cat = FirstWordsTaxonomy.SO_IN_THIS_NEW
         fw_text = "So in this new"
     elif re.search(r"in this new", hook_sentence, re.I):
@@ -1248,6 +1786,10 @@ def _build_heuristic_retention_script(
     elif re.search(r"steam game", hook_sentence, re.I):
         genre_cat = GameGenreTaxonomy.STEAM_GAME
         genre_text = "Steam game"
+    elif direct_like and not re.search(r"co-?op", hook_sentence, re.I):
+        # Do not invent a genre that is not spoken (it would also skew word timings).
+        genre_cat = GameGenreTaxonomy.CUSTOM
+        genre_text = ""
 
     # Second punch heuristic
     sp_cat = SecondPunchTaxonomy.NONE
@@ -1349,6 +1891,6 @@ def _build_heuristic_retention_script(
         clean_script_text=clean_text,
         word_count=w_count,
         estimated_duration=est_dur,
-        validation_warnings=["Heuristically generated retention structure from plain text."],
+        validation_warnings=["Heuristically generated retention structure from plain text."] + repair_notes,
     )
     return populate_clauses_and_timings(ret_obj, words=words, total_duration=target_duration)

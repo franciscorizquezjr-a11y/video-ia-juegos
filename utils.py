@@ -983,6 +983,63 @@ def ensure_hook_type_prefix(text: str, hook_type: str = "steam_new_game") -> str
     return ensure_steam_hook_prefix(cleaned)
 
 
+def _voice_clean_keep_opening(text: str, opening_text: str = "") -> str:
+    """clean_script_text_for_voice, except a leading custom opening stays verbatim
+    (no contractions or comma-to-semicolon changes inside a campaign-mandated phrase)."""
+    try:
+        from audio_aligner import clean_script_text_for_voice
+    except Exception:
+        return (text or "").strip()
+    from script_retention import normalize_opening_text, opening_prefix_end
+    body = (text or "").strip()
+    opening = normalize_opening_text(opening_text)
+    end = opening_prefix_end(body, opening) if opening else None
+    if end is None:
+        return clean_script_text_for_voice(body)
+    # The opener's own trailing punctuation ("Wishlist alert:", "Hey, gamers —") is part of
+    # the mandated phrase: keep it out of the cleaner (which turns ':' and ',' into ';').
+    op_tail = opening[len(re.sub(r"[^\w]+$", "", opening)):]
+    if op_tail and body[end:].startswith(op_tail):
+        end += len(op_tail)
+    head, rest = body[:end], clean_script_text_for_voice(body[end:])
+    if not rest:
+        return head.strip()
+    joiner = "" if rest[:1] in ",.;:!?" else " "
+    return head.strip() + joiner + rest
+
+
+def apply_opening(text: str, hook_type: str = "steam_new_game", opening_text: str = "") -> str:
+    """Return the voiceover script with the opener required by hook_type.
+
+    - steam_new_game: ensure_steam_hook_prefix (current default behaviour).
+    - so_in_this_new_game: ensure_hook_type_prefix (current behaviour for that mode).
+    - custom: the script starts with opening_text verbatim (added if missing).
+    - direct: a leading formulaic opener ("Here's a new Steam game", "So in this new game")
+      is removed when the rest still reads as a sentence.
+    Unknown hook types (e.g. "caveman") leave the text untouched.
+    """
+    from script_retention import (
+        HOOK_TYPES, HOOK_TYPE_CUSTOM, HOOK_TYPE_DIRECT, HOOK_TYPE_SO_IN_THIS_NEW_GAME,
+        ensure_opening_text, resolve_hook_type, strip_formulaic_opener,
+    )
+    raw_mode = str(hook_type or "steam_new_game").strip().lower()
+    if raw_mode not in HOOK_TYPES:
+        return (text or "").strip()
+    mode = resolve_hook_type(raw_mode, opening_text)
+    if mode == HOOK_TYPE_CUSTOM:
+        return _voice_clean_keep_opening(ensure_opening_text(text or "", opening_text), opening_text)
+    if mode == HOOK_TYPE_DIRECT:
+        stripped = strip_formulaic_opener(text or "")
+        try:
+            from audio_aligner import clean_script_text_for_voice
+            return clean_script_text_for_voice(stripped)
+        except Exception:
+            return stripped
+    if mode == HOOK_TYPE_SO_IN_THIS_NEW_GAME:
+        return ensure_hook_type_prefix(text, "so_in_this_new_game")
+    return ensure_steam_hook_prefix(text)
+
+
 def load_viral_script_examples(max_examples: int = 50) -> str:
     """
     Loads ALL viral reference scripts and structural analysis blueprint for the LLM prompt.
@@ -1048,16 +1105,33 @@ def generate_v2_script(
     gemini_api_key: str | None = None,
     script_mode: str = "normal",
     game_genre: str = "",
+    opening_text: str = "",
+    speech_speed: float = 1.12,
 ) -> dict:
     """
     Generate high-retention viral promo script for Trapster / Short V2 IA using
     structured Hook Construction (First Words, Game Genre, First Punch, Second Punch)
     and Retention Construction (Setup, Escalation, Payoff, CTA, Open Loops).
+
+    hook_type: "steam_new_game" (default), "so_in_this_new_game", "direct" (no formula
+    opener) or "custom" (starts exactly with opening_text). speech_speed is the voice
+    speed that will be used, so the word budget matches the final narration.
     """
     import requests
     from script_retention import (
+        HOOK_TYPE_CUSTOM,
+        HOOK_TYPE_DIRECT,
         build_retention_script_prompt,
         parse_and_repair_retention_script,
+        resolve_hook_type,
+    )
+
+    opening_mode = resolve_hook_type(hook_type, opening_text)
+    if script_mode == "caveman" and opening_mode == HOOK_TYPE_DIRECT:
+        opening_mode = "steam_new_game"  # the caveman formula is its own opener
+    opening_instruction = (
+        "Follow the user prompt's OPENING MODE exactly; it overrides the openings of the reference scripts. "
+        if opening_mode in (HOOK_TYPE_DIRECT, HOOK_TYPE_CUSTOM) else ""
     )
 
     clean_groq_key = groq_api_key.strip().strip('"').strip("'") if groq_api_key else ""
@@ -1080,6 +1154,9 @@ def generate_v2_script(
         viral_references=viral_references,
         script_mode=script_mode,
         game_genre=game_genre,
+        hook_type=opening_mode,
+        opening_text=opening_text or "",
+        speech_speed=speech_speed,
     )
 
     last_error = None
@@ -1107,7 +1184,7 @@ def generate_v2_script(
                         "content": (
                             "You are an elite viral gaming scriptwriter and creative director for TikTok, Reels, and YouTube Shorts (Trapster). " +
                             ("Write in simple caveman English with short sentences, following the user prompt's exact hook and retention rules. " if script_mode == "caveman" else "Write in an authentic 'Buddy Hype' conversational tone (excited gamer friend on Discord/TikTok). ") +
-                            "Use kinetic action verbs and concrete physical nouns. Strictly avoid corporate buzzwords (epic, amazing, incredible, delve into, immerse yourself). "
+                            opening_instruction + "Use kinetic action verbs and concrete physical nouns. Strictly avoid corporate buzzwords (epic, amazing, incredible, delve into, immerse yourself). "
                             "You must respond ONLY with valid JSON conforming to the requested schema. "
                             "Never include markdown formatting, backticks, or conversational text."
                         ),
@@ -1158,7 +1235,7 @@ def generate_v2_script(
                     system_instruction=(
                         "You are an elite viral gaming scriptwriter and creative director for TikTok, Reels, and YouTube Shorts (Trapster). " +
                         ("Write in simple caveman English with short sentences, following the user prompt's exact hook and retention rules. " if script_mode == "caveman" else "Write in an authentic 'Buddy Hype' conversational tone (excited gamer friend on Discord/TikTok). ") +
-                        "Use kinetic action verbs and concrete physical nouns. Strictly avoid corporate buzzwords (epic, amazing, incredible, delve into, immerse yourself). "
+                        opening_instruction + "Use kinetic action verbs and concrete physical nouns. Strictly avoid corporate buzzwords (epic, amazing, incredible, delve into, immerse yourself). "
                         "You must respond ONLY with valid JSON conforming to the requested schema. "
                         "Never include markdown formatting, backticks, or conversational text."
                     ),
@@ -1186,12 +1263,18 @@ def generate_v2_script(
         raw_content=raw_response,
         game_name=game_name,
         target_duration=target_duration,
+        hook_type=opening_mode,
+        opening_text=opening_text or "",
     )
 
     clean_text = retention_obj.clean_script_text
     try:
-        from audio_aligner import clean_script_text_for_voice
-        clean_text = clean_script_text_for_voice(clean_text)
+        if opening_mode == HOOK_TYPE_CUSTOM:
+            # Keep the campaign-mandated opening verbatim.
+            clean_text = _voice_clean_keep_opening(clean_text, opening_text)
+        else:
+            from audio_aligner import clean_script_text_for_voice
+            clean_text = clean_script_text_for_voice(clean_text)
     except Exception:
         pass
 
@@ -1215,8 +1298,20 @@ def modify_v2_script_length(
     custom_instruction: str = "",
     groq_api_key: str = "",
     gemini_api_key: str | None = None,
+    hook_type: str | None = None,
+    opening_text: str = "",
+    speech_speed: float | None = None,
+    script_mode: str = "normal",
+    game_genre: str = "",
 ) -> dict:
-    """Modify an existing V2 promo script in English (shorter, longer, change hook, custom instruction, more viral, regenerate)."""
+    """Modify an existing V2 promo script in English (shorter, longer, change hook, custom instruction, more viral, regenerate).
+
+    Optional opening options (all default to the current behaviour):
+    - hook_type / opening_text: "custom" keeps opening_text as the exact first words of the
+      modified script; "direct" asks for no formulaic opener. Other values leave the
+      modification prompts unchanged. "regenerate" passes them to generate_v2_script.
+    - speech_speed: voice speed used for the regenerated word budget (None = generator default).
+    """
     import requests
     clean_groq_key = groq_api_key.strip().strip('"').strip("'") if groq_api_key else ""
     clean_gemini_key = gemini_api_key.strip().strip('"').strip("'") if gemini_api_key else ""
@@ -1226,6 +1321,23 @@ def modify_v2_script_length(
 
     cur_words = len(current_script.split())
     act = (action or "").lower().strip()
+
+    from script_retention import HOOK_TYPE_CUSTOM, HOOK_TYPE_DIRECT, resolve_hook_type
+    clean_opening = (opening_text or "").strip()
+    opening_mode = resolve_hook_type(hook_type, clean_opening) if hook_type else ""
+    opening_rule = ""
+    if opening_mode == HOOK_TYPE_CUSTOM:
+        safe_opening = clean_opening.replace('"', "'")
+        opening_rule = (
+            f"\nOPENING RULE: The script MUST begin with exactly these words: \"{safe_opening}\". "
+            "Keep them verbatim as the first words, then continue."
+        )
+    elif opening_mode == HOOK_TYPE_DIRECT:
+        opening_rule = (
+            "\nOPENING RULE: Do NOT start with a formulaic opener such as \"Here's a new Steam game\", "
+            "\"So in this new game\", \"Check out this\" or \"Imagine\". The first 3-5 words must already "
+            "state the strongest selling point or payoff."
+        )
 
     if act in ("change_hook", "hook", "new_hook"):
         instruction = (
@@ -1299,6 +1411,16 @@ def modify_v2_script_length(
         )
     else:
         # Regenerate fresh angle
+        regen_kwargs = {}
+        if hook_type:
+            regen_kwargs["hook_type"] = hook_type
+            regen_kwargs["opening_text"] = clean_opening
+        if speech_speed is not None:
+            regen_kwargs["speech_speed"] = speech_speed
+        if script_mode and script_mode != "normal":
+            regen_kwargs["script_mode"] = script_mode
+        if game_genre:
+            regen_kwargs["game_genre"] = game_genre
         return generate_v2_script(
             game_name=game_name,
             target_duration=target_duration,
@@ -1306,7 +1428,11 @@ def modify_v2_script_length(
             briefing_text="",
             groq_api_key=clean_groq_key,
             gemini_api_key=clean_gemini_key,
+            **regen_kwargs,
         )
+
+    if opening_rule:
+        instruction += opening_rule
 
     last_error = None
     script_text = ""
@@ -1387,6 +1513,9 @@ def modify_v2_script_length(
         raise RuntimeError(f"No se pudo modificar el guión: {last_error or 'Error desconocido'}")
 
     script_text = clean_v2_script_text(script_text)
+    if opening_mode in (HOOK_TYPE_CUSTOM, HOOK_TYPE_DIRECT):
+        # Enforce the chosen opening even if the model ignored the rule.
+        script_text = apply_opening(script_text, opening_mode, clean_opening)
     word_count = len(script_text.split())
     est_duration = round(word_count / 2.3, 1)
 
@@ -1422,9 +1551,14 @@ def download_youtube_clip(url: str, start_sec: float, end_sec: float, output_pat
     import subprocess
     import shutil
     import sys
-    
-    # Ensure temp dir exists
-    temp_dir = Path("temp")
+
+    clean_url = str(url or "").strip()
+    if not clean_url.lower().startswith(("http://", "https://")):
+        raise ValueError("La URL de YouTube debe empezar por http:// o https://")
+    url = clean_url
+
+    # Ensure temp dir exists (project-root temp/, independent of the working directory)
+    temp_dir = Path(__file__).resolve().parent / "temp"
     temp_dir.mkdir(exist_ok=True)
     temp_full_path = temp_dir / "yt_download_full.mp4"
     
@@ -1455,7 +1589,7 @@ def download_youtube_clip(url: str, start_sec: float, end_sec: float, output_pat
         cmd_ytdlp += ["--ffmpeg-location", ffmpeg_dir]
     if node_bin:
         cmd_ytdlp += ["--js-runtimes", f"node:{node_bin}"]
-    cmd_ytdlp.append(url)
+    cmd_ytdlp += ["--", url]  # "--": the URL can never be parsed as a yt-dlp option
     
     try:
         result = subprocess.run(cmd_ytdlp, capture_output=True, text=True, timeout=600)
@@ -1473,7 +1607,7 @@ def download_youtube_clip(url: str, start_sec: float, end_sec: float, output_pat
                 cmd_ytdlp_simple += ["--ffmpeg-location", ffmpeg_dir]
             if node_bin:
                 cmd_ytdlp_simple += ["--js-runtimes", f"node:{node_bin}"]
-            cmd_ytdlp_simple.append(url)
+            cmd_ytdlp_simple += ["--", url]
             
             result_simple = subprocess.run(cmd_ytdlp_simple, capture_output=True, text=True, timeout=600)
             if result_simple.returncode != 0:
@@ -1590,15 +1724,13 @@ def create_text_card(
     }
 
     def load_custom_font(family: str, size: int, bold: bool = False):
+        # %WINDIR%/Fonts first (same files as before on Windows), then Linux/macOS
+        # font folders, DejaVu Sans and finally PIL's default font.
+        from fonts import load_font
+        files = font_map.get(family, ("arial.ttf", "arialbd.ttf"))
+        file_name = files[1] if bold else files[0]
         try:
-            files = font_map.get(family, ("arial.ttf", "arialbd.ttf"))
-            file_name = files[1] if bold else files[0]
-            # Standard Windows Fonts directory
-            path = os.path.join("C:\\Windows\\Fonts", file_name)
-            if os.path.exists(path):
-                return ImageFont.truetype(path, size)
-            # Try loading by name if not full path
-            return ImageFont.truetype(file_name, size)
+            return load_font([file_name], size, bold=bold)
         except Exception:
             return ImageFont.load_default()
 
@@ -1914,11 +2046,13 @@ def create_video_preview(
             try:
                 # Deterministic cache name based on video file and mtime
                 cache_key = hashlib.md5(f"{v_path.name}_{v_path.stat().st_mtime}".encode()).hexdigest()[:10]
-                frame_cache_path = Path("temp") / f"frame_cache_{cache_key}.jpg"
+                # Project-root temp/ (not the process cwd) and the configured FFmpeg.
+                frame_cache_path = Path(__file__).resolve().parent / "temp" / f"frame_cache_{cache_key}.jpg"
                 frame_cache_path.parent.mkdir(parents=True, exist_ok=True)
                 if not frame_cache_path.exists():
+                    ffmpeg_cmd = os.environ.get("FFMPEG_PATH") or "ffmpeg"
                     subprocess.run(
-                        ["ffmpeg", "-y", "-ss", "00:00:02", "-i", str(v_path), "-vframes", "1", "-q:v", "2", str(frame_cache_path)],
+                        [ffmpeg_cmd, "-y", "-ss", "00:00:02", "-i", str(v_path), "-vframes", "1", "-q:v", "2", str(frame_cache_path)],
                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5
                     )
                 if frame_cache_path.exists():
@@ -2002,10 +2136,10 @@ def create_video_preview(
 
     # 5. Draw Simulated Social Media Overlays (TikTok/Shorts style UI)
     try:
-        font_dir = "C:\\Windows\\Fonts"
-        font_regular = ImageFont.truetype(os.path.join(font_dir, "arial.ttf"), 30)
-        font_bold = ImageFont.truetype(os.path.join(font_dir, "arialbd.ttf"), 30)
-        font_small = ImageFont.truetype(os.path.join(font_dir, "arial.ttf"), 24)
+        from fonts import load_font
+        font_regular = load_font(["arial.ttf"], 30)
+        font_bold = load_font(["arialbd.ttf"], 30, bold=True)
+        font_small = load_font(["arial.ttf"], 24)
     except Exception:
         font_regular = ImageFont.load_default()
         font_bold = ImageFont.load_default()
@@ -2124,13 +2258,8 @@ def generate_steam_hook_overlay_video(
         line_spacing = int(font_size * 0.94)
 
         try:
-            font_dir = "C:\\Windows\\Fonts"
-            font_path = os.path.join(font_dir, "impact.ttf")
-            if not os.path.exists(font_path):
-                font_path = os.path.join(font_dir, "ariblk.ttf")
-            if not os.path.exists(font_path):
-                font_path = os.path.join(font_dir, "arialbd.ttf")
-            hook_font = ImageFont.truetype(font_path, font_size)
+            from fonts import load_font
+            hook_font = load_font(["impact.ttf", "ariblk.ttf", "arialbd.ttf"], font_size, bold=True)
         except Exception:
             hook_font = ImageFont.load_default()
 
@@ -2350,19 +2479,17 @@ def fetch_steam_game_logo(
         fw, fh = 640, 240
         card = Image.new("RGBA", (fw, fh), (0, 0, 0, 0))
         draw = ImageDraw.Draw(card)
-        font_dir = "C:\\Windows\\Fonts"
-        fpath = os.path.join(font_dir, "impact.ttf")
-        if not os.path.exists(fpath):
-            fpath = os.path.join(font_dir, "ariblk.ttf")
+        from fonts import load_font
+        title_font_names = ["impact.ttf", "ariblk.ttf"]
         font_size = 72
-        font = ImageFont.truetype(fpath, font_size) if os.path.exists(fpath) else ImageFont.load_default()
+        font = load_font(title_font_names, font_size, bold=True)
         words = game_name.upper().split()
         title_text = " ".join(words)
         bbox = draw.textbbox((0, 0), title_text, font=font, stroke_width=4)
         tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
         if tw > fw - 40:
             font_size = int(font_size * ((fw - 40) / tw))
-            font = ImageFont.truetype(fpath, max(24, font_size)) if os.path.exists(fpath) else ImageFont.load_default()
+            font = load_font(title_font_names, max(24, font_size), bold=True)
             bbox = draw.textbbox((0, 0), title_text, font=font, stroke_width=4)
             tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
         tx = (fw - tw) // 2
@@ -2608,10 +2735,9 @@ def generate_game_name_reveal_overlay_video(
         except Exception as e:
             logger.warning(f"Error cargando logo del juego {game_logo_path}: {e}")
 
-    font_dir = "C:\\Windows\\Fonts"
-    fpath = os.path.join(font_dir, "impact.ttf")
-    if not os.path.exists(fpath):
-        fpath = os.path.join(font_dir, "ariblk.ttf")
+    # Impact, then Arial Black (same files as before on Windows); portable fallback elsewhere.
+    from fonts import load_font
+    reveal_font_names = ["impact.ttf", "ariblk.ttf"]
     fsize_base = int(152 * widget_scale * res_scale)
 
     cmd = [
@@ -2697,7 +2823,7 @@ def generate_game_name_reveal_overlay_video(
                 red_draw.rounded_rectangle([(ix0, iy0), (ix1, iy1)], radius=ir, fill=(235, 0, 0, 255))
 
                 fsize = max(10, int(fsize_base * anim_scale))
-                fnt = ImageFont.truetype(fpath, fsize) if os.path.exists(fpath) else ImageFont.load_default()
+                fnt = load_font(reveal_font_names, fsize, bold=True)
                 txt = "GAME NAME"
                 st_w = max(1, int(4 * widget_scale * res_scale * anim_scale))
                 bbox = red_draw.textbbox((0, 0), txt, font=fnt, stroke_width=st_w)
@@ -2705,7 +2831,7 @@ def generate_game_name_reveal_overlay_video(
                 available_w = max(1, ix1 - ix0 - 2 * st_w)
                 if bbox[2] - bbox[0] > available_w:
                     fsize = max(10, int(fsize * available_w / (bbox[2] - bbox[0])))
-                    fnt = ImageFont.truetype(fpath, fsize) if os.path.exists(fpath) else ImageFont.load_default()
+                    fnt = load_font(reveal_font_names, fsize, bold=True)
                     bbox = red_draw.textbbox((0, 0), txt, font=fnt, stroke_width=st_w)
                 tw = bbox[2] - bbox[0]
                 th = bbox[3] - bbox[1]

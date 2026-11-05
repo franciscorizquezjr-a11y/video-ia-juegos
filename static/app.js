@@ -32,6 +32,7 @@ const state = {
         activeAvatarBg: null,
         // V2 Short IA State
         hookType: 'steam_new_game',
+        openingText: '',
         v2ScriptText: '',
         v2BriefingText: '',
         v2Tone: 'viral_hype',
@@ -68,6 +69,7 @@ const state = {
         isStep2Running: false,
         step3Result: null,
         hookType: 'steam_new_game',
+        openingText: '',
         scriptText: '',
         voiceMode: 'elevenlabs',
         voicePath: '',
@@ -94,6 +96,10 @@ const state = {
         gameNameRevealY: 800,
         gameNameRevealScale: 1.0,
         gameplayVolume: 15,
+        audioNormalize: true,
+        audioDucking: true,
+        outputFps: 30,
+        cutStartMode: 'shot_start',
         previewMode: 'steam_hook',
         sfxLibrary: [],
         sfxTracks: [
@@ -742,25 +748,440 @@ function switchTab(tabId) {
     }
 }
 
-// Toast Notifications Helper
-function showToast(message, type = 'info') {
+// ---- Shared HTML safety helpers ----
+// Single escapeHtml for the whole app: every server/AI/Steam/file value that
+// goes into an innerHTML template must pass through it. 0 and false are kept.
+function escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+// Returns the URL only when it is an absolute http(s) URL; otherwise ''.
+// Use it for href/src values that come from scraped or AI data.
+function safeHttpUrl(url) {
+    const value = String(url ?? '').trim();
+    if (!value) return '';
+    try {
+        const parsed = new URL(value);
+        return (parsed.protocol === 'http:' || parsed.protocol === 'https:') ? parsed.href : '';
+    } catch (_) {
+        return '';
+    }
+}
+// ---- End shared HTML safety helpers ----
+
+// ---- Data-driven actions (replaces inline onclick handlers that received interpolated strings) ----
+// Values from the server/AI/files travel in escaped data-* attributes and are
+// read back as plain strings, so quotes in names can never break out into JS.
+// bindDataActions() attaches listeners directly to each element (same bubbling
+// order as the old inline handlers).
+const DATA_ACTIONS = {
+    'game-card-open': (el, ev) => handleGameCardClick(ev, el.dataset.gameId),
+    'game-select': (el, ev) => { ev.stopPropagation(); selectActiveGame(el.dataset.gameId); },
+    'game-edit': (el, ev) => { ev.stopPropagation(); openEditGameModal(el.dataset.gameId); },
+    'game-delete': (el, ev) => { ev.stopPropagation(); deleteGameProfile(el.dataset.gameId); },
+    'insight-toggle-automated': (el) => toggleInsightAutomated(el.dataset.date, el.checked),
+    'insight-edit-hook': (el) => startEditingHook(el, el.dataset.date),
+    'insight-delete': (el) => deleteInsightRow(el.dataset.date),
+    'compare-toggle': (el) => toggleCompareVideoSelection(el.dataset.date),
+    'footage-toggle': (el) => toggleFootageClipSelection(el.dataset.filename),
+    'footage-delete': (el) => deleteGameFootageClip(el.dataset.gameId, el.dataset.filename),
+    // Approved-video card buttons are handled by the #approvedVideosGrid click delegate
+    // (initApprovedVideosTab); a data-action here as well would run each action twice.
+};
+
+function bindDataActions(root) {
+    if (!root || typeof root.querySelectorAll !== 'function') return;
+    const nodes = [];
+    if (root.dataset && root.dataset.action) nodes.push(root);
+    root.querySelectorAll('[data-action]').forEach(el => nodes.push(el));
+    nodes.forEach(el => {
+        if (el.__dataActionBound) return;
+        const handler = DATA_ACTIONS[el.dataset.action];
+        if (!handler) return;
+        el.__dataActionBound = true;
+        el.addEventListener(el.dataset.actionEvent || 'click', ev => handler(el, ev));
+    });
+}
+// ---- End data-driven actions ----
+
+// Toast Notifications Helper (the message is always rendered as plain text)
+function showToast(message, type = 'info', durationMs) {
     const container = document.getElementById('toastContainer');
+    if (!container) {
+        console.log(`[${type}] ${message}`);
+        return;
+    }
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
-    
+
     let icon = 'ℹ️';
     if (type === 'success') icon = '✅';
     if (type === 'error') icon = '❌';
+    if (type === 'warning') icon = '⚠️';
 
-    toast.innerHTML = `<span>${icon}</span><span>${message}</span>`;
+    const iconEl = document.createElement('span');
+    iconEl.textContent = icon;
+    const textEl = document.createElement('span');
+    textEl.className = 'toast-message';
+    textEl.textContent = (message === null || message === undefined) ? '' : String(message);
+    toast.appendChild(iconEl);
+    toast.appendChild(textEl);
     container.appendChild(toast);
 
+    const visibleMs = (Number.isFinite(durationMs) && durationMs > 0) ? durationMs : 4000;
     setTimeout(() => {
         toast.style.opacity = '0';
         toast.style.transform = 'translateX(100%)';
         setTimeout(() => toast.remove(), 300);
-    }, 4000);
+    }, visibleMs);
 }
+
+// ---- Render warnings (List[str] in render results / job results) ----
+function normalizeRenderWarnings(result) {
+    const raw = result && Array.isArray(result.warnings) ? result.warnings : [];
+    return raw.map(w => (w === null || w === undefined) ? '' : String(w).trim()).filter(Boolean);
+}
+
+// Shows warnings without blocking: a toast per warning plus, when a notice
+// element id is given, a plain-text list inside that element.
+function showRenderWarnings(result, noticeElementId, options = {}) {
+    const warnings = normalizeRenderWarnings(result);
+    const withToast = options.toast !== false;
+    const notice = noticeElementId ? document.getElementById(noticeElementId) : null;
+    if (notice) {
+        if (typeof notice.replaceChildren === 'function') notice.replaceChildren();
+        else notice.textContent = '';
+        if (warnings.length) {
+            const title = document.createElement('strong');
+            title.textContent = warnings.length === 1 ? '⚠️ Aviso del render:' : `⚠️ ${warnings.length} avisos del render:`;
+            const list = document.createElement('ul');
+            warnings.forEach(w => {
+                const li = document.createElement('li');
+                li.textContent = w;
+                list.appendChild(li);
+            });
+            notice.appendChild(title);
+            notice.appendChild(list);
+            notice.style.display = 'block';
+        } else {
+            notice.style.display = 'none';
+        }
+    }
+    if (withToast) warnings.forEach(w => showToast(`Aviso del render: ${w}`, 'warning', 9000));
+    return warnings;
+}
+// ---- End render warnings ----
+
+// ---- Job progress streams (SSE) ----
+// Closes an EventSource when the browser has given up on it (readyState CLOSED)
+// or after several consecutive errors, then lets the caller recover (for
+// example by polling /api/jobs/{id}). Uses addEventListener so any existing
+// onerror handler keeps working.
+function guardJobEventSource(es, onGiveUp, maxConsecutiveErrors = 4) {
+    if (!es || typeof es.addEventListener !== 'function') return es;
+    let failures = 0;
+    let gaveUp = false;
+    const reset = () => { failures = 0; };
+    es.addEventListener('open', reset);
+    es.addEventListener('message', reset);
+    es.addEventListener('error', () => {
+        if (gaveUp) return;
+        failures += 1;
+        const closedState = (typeof EventSource !== 'undefined' && EventSource.CLOSED !== undefined) ? EventSource.CLOSED : 2;
+        if (es.readyState === closedState || failures >= maxConsecutiveErrors) {
+            gaveUp = true;
+            try { es.close(); } catch (_) {}
+            if (typeof onGiveUp === 'function') onGiveUp();
+        }
+    });
+    return es;
+}
+
+// Polls /api/jobs/{id} until the job finishes and delivers SSE-shaped messages
+// ({type: 'progress' | 'completed' | 'error', ...}). Returns a stop() function.
+function pollJobUntilDone(jobId, onMessage, intervalMs = 1500) {
+    let stopped = false;
+    let timer = null;
+    const tick = async () => {
+        if (stopped) return;
+        try {
+            const res = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`);
+            if (res.ok) {
+                const job = await res.json();
+                if (stopped) return;
+                if (job.status === 'completed') {
+                    stopped = true;
+                    onMessage({ type: 'completed', progress: 100, message: job.message, result: job.result });
+                    return;
+                }
+                if (job.status === 'error' || job.status === 'failed') {
+                    stopped = true;
+                    onMessage({ type: 'error', error: job.error || job.message || 'Error en el trabajo', message: job.message });
+                    return;
+                }
+                onMessage({ type: 'progress', progress: job.progress, message: job.message, phase: job.phase });
+            } else if (res.status === 404) {
+                stopped = true;
+                onMessage({ type: 'error', error: 'El trabajo ya no existe en el servidor (¿se reinició la app?).' });
+                return;
+            }
+        } catch (err) {
+            console.warn('Job poll error:', err);
+        }
+        if (!stopped) timer = setTimeout(tick, intervalMs);
+    };
+    timer = setTimeout(tick, 0);
+    return () => { stopped = true; if (timer) clearTimeout(timer); };
+}
+// ---- End job progress streams ----
+
+// ---- Opening / hook options (hook_type + opening_text) ----
+// "steam_new_game" stays the default (required by Trapster campaigns).
+// "direct" = no formulaic opener; "custom" = script starts with opening_text.
+const HOOK_TYPE_VALUES = ['steam_new_game', 'so_in_this_new_game', 'direct', 'custom'];
+const PROMOV3_HOOK_CARD_IDS = {
+    steam_new_game: 'labelPromoV3HookSteam',
+    so_in_this_new_game: 'labelPromoV3HookSoInThis',
+    direct: 'labelPromoV3HookDirect',
+    custom: 'labelPromoV3HookCustom',
+};
+const PROMO_HOOK_CARD_IDS = {
+    steam_new_game: 'labelHookSteam',
+    so_in_this_new_game: 'labelHookSoInThis',
+    direct: 'labelHookDirect',
+    custom: 'labelHookCustom',
+};
+
+function normalizeHookType(value) {
+    return HOOK_TYPE_VALUES.includes(value) ? value : 'steam_new_game';
+}
+
+function syncHookCards(cardIds, hookType, openingGroupId) {
+    Object.entries(cardIds).forEach(([value, id]) => {
+        const card = document.getElementById(id);
+        if (!card) return;
+        card.classList.toggle('active', value === hookType);
+        const radio = card.querySelector('input[type="radio"]');
+        if (radio) radio.checked = value === hookType;
+    });
+    const group = document.getElementById(openingGroupId);
+    if (group) group.style.display = hookType === 'custom' ? '' : 'none';
+}
+
+// Builds {hook_type, opening_text} for a request. opening_text only travels
+// with "custom"; the typed phrase is kept in state when switching away.
+function hookRequestFields(hookType, openingText) {
+    const type = normalizeHookType(hookType);
+    return { hook_type: type, opening_text: type === 'custom' ? String(openingText || '').trim() : '' };
+}
+
+function setPromoV3HookType(hookType) {
+    state.promov3.hookType = normalizeHookType(hookType);
+    syncHookCards(PROMOV3_HOOK_CARD_IDS, state.promov3.hookType, 'promov3OpeningTextGroup');
+}
+
+function promoV3OpeningText() {
+    const input = document.getElementById('promov3OpeningText');
+    const value = input ? input.value : state.promov3.openingText;
+    return String(value || '').trim();
+}
+
+function promoV3HookFields() {
+    return hookRequestFields(state.promov3.hookType, promoV3OpeningText());
+}
+
+function setPromosHookType(hookType) {
+    state.promos.hookType = normalizeHookType(hookType);
+    syncHookCards(PROMO_HOOK_CARD_IDS, state.promos.hookType, 'promosOpeningTextGroup');
+}
+
+function promosOpeningText() {
+    const input = document.getElementById('promosOpeningText');
+    const value = input ? input.value : state.promos.openingText;
+    return String(value || '').trim();
+}
+
+function promosHookFields() {
+    return hookRequestFields(state.promos.hookType, promosOpeningText());
+}
+
+// Same rule as the server (_effective_hook_type / resolve_hook_type): "custom" without
+// a phrase falls back to the Steam opener, so previews, splash controls and the
+// default script match what will actually be rendered.
+function effectiveHookType(hookType, openingText) {
+    const type = normalizeHookType(hookType);
+    return (type === 'custom' && !String(openingText || '').trim()) ? 'steam_new_game' : type;
+}
+
+function promosEffectiveHookType() {
+    return effectiveHookType(state.promos.hookType, promosOpeningText());
+}
+
+// Default script used when the user skips writing one (Promo V2 modal).
+function defaultPromoScriptForHook(hookType, gameName, openingText) {
+    const type = effectiveHookType(hookType, openingText);
+    if (type === 'steam_new_game') {
+        return `Here's a new Steam Game you need to check out. Experience intense gameplay and unique worlds in ${gameName}. Wishlist now on Steam!`;
+    }
+    if (type === 'direct') {
+        return `${gameName} throws you straight into intense gameplay and unique worlds. Wishlist it now on Steam!`;
+    }
+    if (type === 'custom' && String(openingText || '').trim()) {
+        return `${String(openingText).trim()} Experience intense gameplay and unique worlds in ${gameName}. Wishlist now on Steam!`;
+    }
+    return `So in this new game, you dive into thrilling adventures. Check out ${gameName} and add it to your wishlist today!`;
+}
+
+// Short label for notes/badges.
+function hookTypeLabel(hookType) {
+    return {
+        steam_new_game: 'Steam Hook',
+        so_in_this_new_game: 'Dynamic Hook',
+        direct: 'Hook Directo',
+        custom: 'Entrada propia',
+    }[normalizeHookType(hookType)];
+}
+
+// Voice speed chosen in V3 step 3 (used as speech_speed so the script word
+// budget matches the voice). 1.1 when unknown; clamped to ElevenLabs' 0.7-1.2.
+function promoV3VoiceSpeed() {
+    const value = parseFloat(document.getElementById('promov3VoiceSpeedSlider')?.value);
+    return Number.isFinite(value) && value > 0 ? Math.min(1.2, Math.max(0.7, value)) : 1.1;
+}
+// ---- End opening / hook options ----
+
+// ---- Render output options (audio_normalize, audio_ducking, output_fps) ----
+// Defaults: loudness normalization ON, ducking ON, 30 fps. The last choice is
+// remembered per browser as a convenience (it can always be changed).
+const RENDER_OPTIONS_STORAGE_KEY = 'iavs_render_output_options_v1';
+const RENDER_OPTION_DEFAULTS = Object.freeze({ audio_normalize: true, audio_ducking: true, output_fps: 30 });
+
+function normalizeOutputFps(value) {
+    return Number(value) === 60 ? 60 : 30;
+}
+
+function normalizeRenderOptions(raw) {
+    const src = raw || {};
+    return {
+        audio_normalize: src.audio_normalize !== false,
+        audio_ducking: src.audio_ducking !== false,
+        output_fps: normalizeOutputFps(src.output_fps),
+    };
+}
+
+function loadStoredRenderOptions() {
+    try {
+        const raw = localStorage.getItem(RENDER_OPTIONS_STORAGE_KEY);
+        return raw ? normalizeRenderOptions(JSON.parse(raw)) : { ...RENDER_OPTION_DEFAULTS };
+    } catch (_) {
+        return { ...RENDER_OPTION_DEFAULTS };
+    }
+}
+
+function storeRenderOptions(options) {
+    try {
+        localStorage.setItem(RENDER_OPTIONS_STORAGE_KEY, JSON.stringify(normalizeRenderOptions(options)));
+    } catch (_) { /* private mode / blocked storage: keep in memory only */ }
+}
+
+// prefix: 'promov3' (Promo V3 step 5) or 'wizard' (guided flow).
+function readRenderOptionsFromUi(prefix, fallback) {
+    const base = normalizeRenderOptions(fallback);
+    const norm = document.getElementById(`${prefix}AudioNormalize`);
+    const duck = document.getElementById(`${prefix}AudioDucking`);
+    const fps = document.getElementById(`${prefix}OutputFps`);
+    return normalizeRenderOptions({
+        audio_normalize: (norm && typeof norm.checked === 'boolean') ? norm.checked : base.audio_normalize,
+        audio_ducking: (duck && typeof duck.checked === 'boolean') ? duck.checked : base.audio_ducking,
+        output_fps: (fps && fps.value) ? fps.value : base.output_fps,
+    });
+}
+
+function writeRenderOptionsToUi(prefix, options) {
+    const opts = normalizeRenderOptions(options);
+    const norm = document.getElementById(`${prefix}AudioNormalize`);
+    const duck = document.getElementById(`${prefix}AudioDucking`);
+    const fps = document.getElementById(`${prefix}OutputFps`);
+    if (norm) norm.checked = opts.audio_normalize;
+    if (duck) duck.checked = opts.audio_ducking;
+    if (fps) fps.value = String(opts.output_fps);
+}
+
+function applyRenderOptionsToState(target, options) {
+    if (!target) return;
+    const opts = normalizeRenderOptions(options);
+    target.audioNormalize = opts.audio_normalize;
+    target.audioDucking = opts.audio_ducking;
+    target.outputFps = opts.output_fps;
+}
+
+function renderOptionsFromState(target) {
+    return normalizeRenderOptions({
+        audio_normalize: target ? target.audioNormalize : undefined,
+        audio_ducking: target ? target.audioDucking : undefined,
+        output_fps: target ? target.outputFps : undefined,
+    });
+}
+
+// Options saved with a render result (top level or under render_options);
+// null when the result predates these options.
+function renderOptionsFromResult(result) {
+    if (!result || typeof result !== 'object') return null;
+    const src = (result.render_options && typeof result.render_options === 'object') ? result.render_options : result;
+    if (src.audio_normalize === undefined && src.audio_ducking === undefined && src.output_fps === undefined) return null;
+    return normalizeRenderOptions({ ...RENDER_OPTION_DEFAULTS, ...src });
+}
+
+// Wires the three controls of a panel to a state object.
+function bindRenderOptionControls(prefix, target) {
+    applyRenderOptionsToState(target, loadStoredRenderOptions());
+    writeRenderOptionsToUi(prefix, renderOptionsFromState(target));
+    ['AudioNormalize', 'AudioDucking', 'OutputFps'].forEach(suffix => {
+        const el = document.getElementById(`${prefix}${suffix}`);
+        if (!el) return;
+        el.addEventListener('change', () => {
+            const opts = readRenderOptionsFromUi(prefix, renderOptionsFromState(target));
+            applyRenderOptionsToState(target, opts);
+            storeRenderOptions(opts);
+        });
+    });
+}
+
+function normalizeCutStartMode(value) {
+    return value === 'best_moment' ? 'best_moment' : 'shot_start';
+}
+
+// Raiser 1 is the build-up into the NEW STEAM GAME splash. Without the splash the
+// untouched default Raiser 1 (start 0 s, volume 80%) is not sent; a Raiser 1 the user
+// moved or re-levelled, Raiser 2 (impact on the white-flash cut) and any added track
+// are always kept.
+function isUntouchedDefaultRaiser1(track) {
+    if (!track || track.id !== 'trk_raiser1') return false;
+    const start = Number(track.start_s || 0);
+    const volume = track.volume === undefined ? 0.8 : Number(track.volume);
+    return Math.abs(start) < 0.001 && Math.abs(volume - 0.8) < 0.001 && !(Number(track.trim_start_s) > 0);
+}
+
+function sfxTracksRequestPayload(tracks, enableSteamHook) {
+    return (tracks || [])
+        .filter(t => enableSteamHook !== false || !isUntouchedDefaultRaiser1(t))
+        .map(t => ({
+            name: t.name,
+            file: t.relative_path || t.filename || t.name,
+            relative_path: t.relative_path || t.filename,
+            start_s: t.start_s,
+            volume: t.volume,
+        }));
+}
+// ---- End render output options ----
+
+
 
 // Safe response parser for fetch calls (prevents Unexpected token 'I', "Internal S"... crashes)
 async function parseJsonResponse(res) {
@@ -957,7 +1378,7 @@ function renderTrailers() {
 
         const safeGame = escapeHtml(gameName);
         const safeTitle = escapeHtml(t.title || 'Trailer');
-        const safeUrl = escapeHtml(t.url || '');
+        const safeUrl = escapeHtml(safeHttpUrl(t.url) || '#');
         const safeId = escapeHtml(rawVideoId);
         const safeThumb = escapeHtml(thumbUrl);
         const safeChannel = escapeHtml(channelName);
@@ -1182,6 +1603,18 @@ async function triggerScraping() {
 // =============================================================================
 
 let currentV1EventSource = null;
+let currentV1PollStop = null;
+
+function stopV1JobTracking() {
+    if (currentV1EventSource) {
+        currentV1EventSource.close();
+        currentV1EventSource = null;
+    }
+    if (currentV1PollStop) {
+        currentV1PollStop();
+        currentV1PollStop = null;
+    }
+}
 
 function initV1PipelineModalListeners() {
     const modal = document.getElementById('v1PipelineModal');
@@ -1239,10 +1672,7 @@ function closeV1PipelineModal() {
         modal.classList.remove('active');
     }
 
-    if (currentV1EventSource) {
-        currentV1EventSource.close();
-        currentV1EventSource = null;
-    }
+    stopV1JobTracking();
 
     const video = document.getElementById('v1ResultVideo');
     if (video) video.pause();
@@ -1271,7 +1701,7 @@ async function startV1Pipeline(url, gameName) {
     progressBar.classList.remove('bar-error');
     progressPct.textContent = '5%';
     progressMsg.textContent = 'Iniciando conexión con el servidor...';
-    terminalLogs.innerHTML = `<div class="v1-log-line text-muted">[${new Date().toLocaleTimeString()}] Iniciando Pipeline V1 para "${gameName}"...</div>`;
+    terminalLogs.innerHTML = `<div class="v1-log-line text-muted">[${new Date().toLocaleTimeString()}] Iniciando Pipeline V1 para "${escapeHtml(gameName)}"...</div>`;
     errorBox.style.display = 'none';
     resultBox.style.display = 'none';
     resultVideo.src = '';
@@ -1290,10 +1720,7 @@ async function startV1Pipeline(url, gameName) {
         modal.classList.add('active');
     }
 
-    if (currentV1EventSource) {
-        currentV1EventSource.close();
-        currentV1EventSource = null;
-    }
+    stopV1JobTracking();
 
     try {
         const res = await fetch('/api/v1/process-trailer', {
@@ -1318,16 +1745,25 @@ async function startV1Pipeline(url, gameName) {
         appendV1Log(`[${new Date().toLocaleTimeString()}] Tarea registrada con ID: ${jobId}`);
 
         // Connect SSE
-        currentV1EventSource = new EventSource(`/api/jobs/${jobId}/stream`);
+        const v1Source = new EventSource(`/api/jobs/${jobId}/stream`);
+        currentV1EventSource = v1Source;
 
-        currentV1EventSource.onmessage = (event) => {
+        v1Source.onmessage = (event) => {
             const msg = JSON.parse(event.data);
             handleV1SSEMessage(msg);
         };
 
-        currentV1EventSource.onerror = () => {
-            // Connection will retry or wait
-        };
+        // Brief drops are retried by the browser; if the stream is closed or keeps
+        // failing, close it and follow the job by polling instead.
+        guardJobEventSource(v1Source, () => {
+            if (currentV1EventSource !== v1Source) return;
+            currentV1EventSource = null;
+            appendV1Log(`[${new Date().toLocaleTimeString()}] Conexión de progreso perdida; consultando el estado del trabajo...`);
+            currentV1PollStop = pollJobUntilDone(jobId, msg => {
+                if (msg.type === 'completed' || msg.type === 'error') currentV1PollStop = null;
+                handleV1SSEMessage(msg);
+            });
+        });
 
     } catch (e) {
         showV1Error(`No se pudo iniciar el proceso:\n\n${e.message}`);
@@ -2339,8 +2775,8 @@ function renderBatchTasks(autoExpandId = null) {
         else if (cleanPreset.includes('Personalizado')) presetBadgeClass = 'batch-badge-preset-custom';
 
         const overlayBadge = isClassic
-            ? `<span class="batch-badge batch-badge-overlay-classic" id="batchHeaderOverlay_${item.id}">✍️ Classic</span>`
-            : `<span class="batch-badge batch-badge-overlay-card" id="batchHeaderOverlay_${item.id}">🏷️ Tarjeta</span>`;
+            ? `<span class="batch-badge batch-badge-overlay-classic" id="batchHeaderOverlay_${escapeHtml(item.id)}">✍️ Classic</span>`
+            : `<span class="batch-badge batch-badge-overlay-card" id="batchHeaderOverlay_${escapeHtml(item.id)}">🏷️ Tarjeta</span>`;
 
         let statusBadge = '<span class="pill" style="background: rgba(255, 255, 255, 0.1);">⏳ Pendiente</span>';
         if (item.status === 'processing') {
@@ -2381,30 +2817,30 @@ function renderBatchTasks(autoExpandId = null) {
         const miniFontSize = (fontSize * scaleMiniX).toFixed(1);
 
         html += `
-            <div class="batch-task-card ${isExpanded ? 'expanded' : ''}" id="batchCard_${item.id}" data-id="${item.id}" data-resolution="${resLabel}" data-overlay-type="${overlayType}">
+            <div class="batch-task-card ${isExpanded ? 'expanded' : ''}" id="batchCard_${escapeHtml(item.id)}" data-id="${escapeHtml(item.id)}" data-resolution="${escapeHtml(resLabel)}" data-overlay-type="${escapeHtml(overlayType)}">
                 <!-- Card Header -->
-                <div class="batch-task-header" data-id="${item.id}">
+                <div class="batch-task-header" data-id="${escapeHtml(item.id)}">
                     <div class="batch-task-header-left">
                         <span class="batch-task-index">#${idx + 1}</span>
-                        <img src="${thumbSrc}" alt="${item.game_name}" class="batch-task-thumb" onerror="this.src='https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=400&q=80'">
+                        <img src="${escapeHtml(thumbSrc)}" alt="${escapeHtml(item.game_name)}" class="batch-task-thumb" onerror="this.src='https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=400&q=80'">
                         <div class="batch-task-info">
-                            <div class="batch-task-name" id="batchHeaderTitle_${item.id}">${item.game_name}</div>
+                            <div class="batch-task-name" id="batchHeaderTitle_${escapeHtml(item.id)}">${escapeHtml(item.game_name)}</div>
                             <div class="batch-task-badges">
-                                <span class="batch-badge ${presetBadgeClass}" id="batchHeaderPresetBadge_${item.id}">${cleanPreset}</span>
+                                <span class="batch-badge ${presetBadgeClass}" id="batchHeaderPresetBadge_${escapeHtml(item.id)}">${escapeHtml(cleanPreset)}</span>
                                 ${overlayBadge}
-                                <span class="batch-badge batch-badge-time" id="batchHeaderTiming_${item.id}">⚡ Short V1 (${item.target_duration || 30}s)</span>
-                                <span class="batch-badge batch-badge-res" id="batchHeaderRes_${item.id}">${resLabel}</span>
+                                <span class="batch-badge batch-badge-time" id="batchHeaderTiming_${escapeHtml(item.id)}">⚡ Short V1 (${escapeHtml(item.target_duration || 30)}s)</span>
+                                <span class="batch-badge batch-badge-res" id="batchHeaderRes_${escapeHtml(item.id)}">${escapeHtml(resLabel)}</span>
                                 <span class="badge-channel" style="background: rgba(255,255,255,0.08);">${sourceLabel}</span>
                                 ${statusBadge}
                             </div>
                         </div>
                     </div>
                     <div class="batch-task-header-right">
-                        ${item.output_video ? `<a href="${item.output_video}" target="_blank" class="btn btn-secondary btn-sm" onclick="event.stopPropagation();" style="color: var(--accent-cyan);">▶️ Ver Video</a>` : ''}
-                        <button class="btn btn-primary btn-sm btn-batch-toggle" data-id="${item.id}" onclick="event.stopPropagation();">
+                        ${item.output_video ? `<a href="${escapeHtml(item.output_video)}" target="_blank" class="btn btn-secondary btn-sm" onclick="event.stopPropagation();" style="color: var(--accent-cyan);">▶️ Ver Video</a>` : ''}
+                        <button class="btn btn-primary btn-sm btn-batch-toggle" data-id="${escapeHtml(item.id)}" onclick="event.stopPropagation();">
                             <span>✏️</span> Editar
                         </button>
-                        <button class="btn btn-secondary btn-sm btn-batch-delete-head" data-id="${item.id}" title="Quitar de la cola" onclick="event.stopPropagation();">
+                        <button class="btn btn-secondary btn-sm btn-batch-delete-head" data-id="${escapeHtml(item.id)}" title="Quitar de la cola" onclick="event.stopPropagation();">
                             <span>🗑️</span>
                         </button>
                         <span class="batch-chevron">▼</span>
@@ -2412,7 +2848,7 @@ function renderBatchTasks(autoExpandId = null) {
                 </div>
 
                 <!-- Expanded Task Editor Body -->
-                <div class="batch-task-body" id="batchBody_${item.id}">
+                <div class="batch-task-body" id="batchBody_${escapeHtml(item.id)}">
                     <div class="batch-task-layout">
                         <!-- Left Controls Column -->
                         <div class="batch-task-form">
@@ -2421,11 +2857,11 @@ function renderBatchTasks(autoExpandId = null) {
                                 <div class="batch-section-title">🔗 1. Origen y Duración (Shorts V1)</div>
                                 <div class="form-group">
                                     <label class="form-label">URL de YouTube / Origen</label>
-                                    <input type="text" id="batch_ytUrl_${item.id}" class="form-input batch-field" value="${item.youtube_url || ''}" placeholder="https://www.youtube.com/watch?v=...">
+                                    <input type="text" id="batch_ytUrl_${escapeHtml(item.id)}" class="form-input batch-field" value="${escapeHtml(item.youtube_url || '')}" placeholder="https://www.youtube.com/watch?v=...">
                                 </div>
                                 <div class="form-group">
                                     <label class="form-label">⚡ Duración Objetivo (Director IA V1)</label>
-                                    <select id="batch_targetDuration_${item.id}" class="form-select batch-field">
+                                    <select id="batch_targetDuration_${escapeHtml(item.id)}" class="form-select batch-field">
                                         <option value="15" ${(item.target_duration == 15) ? 'selected' : ''}>15 Segundos (Ultra Dinámico)</option>
                                         <option value="30" ${(item.target_duration == 30 || !item.target_duration) ? 'selected' : ''}>30 Segundos (Recomendado)</option>
                                         <option value="45" ${(item.target_duration == 45) ? 'selected' : ''}>45 Segundos (Extendido)</option>
@@ -2441,8 +2877,8 @@ function renderBatchTasks(autoExpandId = null) {
                                 <div class="form-group">
                                     <label class="form-label">Nombre del Juego</label>
                                     <div class="input-with-button">
-                                        <input type="text" id="batch_gameName_${item.id}" class="form-input batch-field" value="${item.game_name || ''}" placeholder="Ej: Hades II, Silksong...">
-                                        <button class="btn btn-gradient-sm btn-batch-gen-hook" data-id="${item.id}" id="btnBatchGenHook_${item.id}">
+                                        <input type="text" id="batch_gameName_${escapeHtml(item.id)}" class="form-input batch-field" value="${escapeHtml(item.game_name || '')}" placeholder="Ej: Hades II, Silksong...">
+                                        <button class="btn btn-gradient-sm btn-batch-gen-hook" data-id="${escapeHtml(item.id)}" id="btnBatchGenHook_${escapeHtml(item.id)}">
                                             <span>✨</span> Generar Gancho
                                         </button>
                                     </div>
@@ -2451,11 +2887,11 @@ function renderBatchTasks(autoExpandId = null) {
                                     <div class="label-with-actions">
                                         <label class="form-label">Texto del Gancho (En Tarjeta)</label>
                                         <div class="hook-length-actions">
-                                            <button class="btn btn-tag btn-batch-hook-shorter" data-id="${item.id}">✂️ Más Corto</button>
-                                            <button class="btn btn-tag btn-batch-hook-longer" data-id="${item.id}">📜 Más Largo</button>
+                                            <button class="btn btn-tag btn-batch-hook-shorter" data-id="${escapeHtml(item.id)}">✂️ Más Corto</button>
+                                            <button class="btn btn-tag btn-batch-hook-longer" data-id="${escapeHtml(item.id)}">📜 Más Largo</button>
                                         </div>
                                     </div>
-                                    <textarea id="batch_hookText_${item.id}" class="form-textarea batch-field" rows="2" placeholder="Escribe o genera un gancho impactante...">${hookText}</textarea>
+                                    <textarea id="batch_hookText_${escapeHtml(item.id)}" class="form-textarea batch-field" rows="2" placeholder="Escribe o genera un gancho impactante...">${escapeHtml(hookText)}</textarea>
                                 </div>
                             </div>
 
@@ -2464,7 +2900,7 @@ function renderBatchTasks(autoExpandId = null) {
                                 <div class="batch-section-title">🎨 3. Preset y Estilo de Texto</div>
                                 <div class="form-group" style="margin-bottom: 12px;">
                                     <label class="form-label">Estilo de Presentación</label>
-                                    <div class="pill-group batch-overlay-pills" data-id="${item.id}">
+                                    <div class="pill-group batch-overlay-pills" data-id="${escapeHtml(item.id)}">
                                         <button type="button" class="pill ${!isClassic ? 'active' : ''}" data-overlay="card">🏷️ Tarjeta Social</button>
                                         <button type="button" class="pill ${isClassic ? 'active' : ''}" data-overlay="instagram_classic">✍️ Instagram Classic</button>
                                     </div>
@@ -2472,14 +2908,14 @@ function renderBatchTasks(autoExpandId = null) {
                                 <div class="form-row">
                                     <div class="form-group col-6">
                                         <label class="form-label">Preset / Cuenta</label>
-                                        <select id="batch_preset_${item.id}" class="form-select batch-preset-select" data-id="${item.id}">
+                                        <select id="batch_preset_${escapeHtml(item.id)}" class="form-select batch-preset-select" data-id="${escapeHtml(item.id)}">
                                             ${Object.entries(state.presets || {}).map(([key, preset]) => `<option value="Predeterminado: ${escapeHtml(key)}" ${cleanPreset === key ? 'selected' : ''}>${escapeHtml(key)} (${escapeHtml(preset.data?.card_username || key)})</option>`).join('')}
                                             <option value="Personalizado" ${cleanPreset === 'Personalizado' ? 'selected' : ''}>Personalizado (Editor Libre)</option>
                                         </select>
                                     </div>
                                     <div class="form-group col-6">
                                         <label class="form-label">Resolución</label>
-                                        <div class="pill-group batch-res-pills" data-id="${item.id}">
+                                        <div class="pill-group batch-res-pills" data-id="${escapeHtml(item.id)}">
                                             <button class="pill ${resLabel === '1080p' ? 'active' : ''}" data-res="1080p">1080p</button>
                                             <button class="pill ${resLabel === '4K' ? 'active' : ''}" data-res="4K">4K</button>
                                         </div>
@@ -2489,11 +2925,11 @@ function renderBatchTasks(autoExpandId = null) {
                                 <div class="form-row">
                                     <div class="form-group col-6">
                                         <label class="form-label">Usuario</label>
-                                        <input type="text" id="batch_username_${item.id}" class="form-input batch-field" value="${username}">
+                                        <input type="text" id="batch_username_${escapeHtml(item.id)}" class="form-input batch-field" value="${escapeHtml(username)}">
                                     </div>
                                     <div class="form-group col-6">
                                         <label class="form-label">Handle (@)</label>
-                                        <input type="text" id="batch_handle_${item.id}" class="form-input batch-field" value="${handle}">
+                                        <input type="text" id="batch_handle_${escapeHtml(item.id)}" class="form-input batch-field" value="${escapeHtml(handle)}">
                                     </div>
                                 </div>
 
@@ -2502,22 +2938,22 @@ function renderBatchTasks(autoExpandId = null) {
                                     <div class="form-group col-4">
                                         <label class="form-label">Fondo</label>
                                         <div class="color-picker-wrapper">
-                                            <input type="color" id="batch_bgColor_${item.id}" class="color-input color-picker-input batch-field" value="${bgColor}">
-                                            <span class="color-hex color-hex-label" id="batch_bgColorHex_${item.id}">${bgColor}</span>
+                                            <input type="color" id="batch_bgColor_${escapeHtml(item.id)}" class="color-input color-picker-input batch-field" value="${escapeHtml(bgColor)}">
+                                            <span class="color-hex color-hex-label" id="batch_bgColorHex_${escapeHtml(item.id)}">${escapeHtml(bgColor)}</span>
                                         </div>
                                     </div>
                                     <div class="form-group col-4">
                                         <label class="form-label">Texto</label>
                                         <div class="color-picker-wrapper">
-                                            <input type="color" id="batch_textColor_${item.id}" class="color-input color-picker-input batch-field" value="${textColor}">
-                                            <span class="color-hex color-hex-label" id="batch_textColorHex_${item.id}">${textColor}</span>
+                                            <input type="color" id="batch_textColor_${escapeHtml(item.id)}" class="color-input color-picker-input batch-field" value="${escapeHtml(textColor)}">
+                                            <span class="color-hex color-hex-label" id="batch_textColorHex_${escapeHtml(item.id)}">${escapeHtml(textColor)}</span>
                                         </div>
                                     </div>
                                     <div class="form-group col-4">
                                         <label class="form-label">Borde</label>
                                         <div class="color-picker-wrapper">
-                                            <input type="color" id="batch_borderColor_${item.id}" class="color-input color-picker-input batch-field" value="${borderColor}">
-                                            <span class="color-hex color-hex-label" id="batch_borderColorHex_${item.id}">${borderColor}</span>
+                                            <input type="color" id="batch_borderColor_${escapeHtml(item.id)}" class="color-input color-picker-input batch-field" value="${escapeHtml(borderColor)}">
+                                            <span class="color-hex color-hex-label" id="batch_borderColorHex_${escapeHtml(item.id)}">${escapeHtml(borderColor)}</span>
                                         </div>
                                     </div>
                                 </div>
@@ -2527,41 +2963,41 @@ function renderBatchTasks(autoExpandId = null) {
                                     <div class="form-group col-6">
                                         <div class="slider-header">
                                             <label class="form-label">Fuente</label>
-                                            <span class="slider-value" id="batch_fontSizeVal_${item.id}">${fontSize}px</span>
+                                            <span class="slider-value" id="batch_fontSizeVal_${escapeHtml(item.id)}">${escapeHtml(fontSize)}px</span>
                                         </div>
-                                        <input type="range" id="batch_fontSize_${item.id}" class="form-slider batch-field" min="40" max="120" value="${fontSize}">
+                                        <input type="range" id="batch_fontSize_${escapeHtml(item.id)}" class="form-slider batch-field" min="40" max="120" value="${escapeHtml(fontSize)}">
                                     </div>
                                     <div class="form-group col-6">
                                         <div class="slider-header">
                                             <label class="form-label">Alto Tarjeta</label>
-                                            <span class="slider-value" id="batch_cardHeightVal_${item.id}">${cardHeight}px</span>
+                                            <span class="slider-value" id="batch_cardHeightVal_${escapeHtml(item.id)}">${escapeHtml(cardHeight)}px</span>
                                         </div>
-                                        <input type="range" id="batch_cardHeight_${item.id}" class="form-slider batch-field" min="400" max="1400" step="20" value="${cardHeight}">
+                                        <input type="range" id="batch_cardHeight_${escapeHtml(item.id)}" class="form-slider batch-field" min="400" max="1400" step="20" value="${escapeHtml(cardHeight)}">
                                     </div>
                                 </div>
                                 <div class="form-row">
                                     <div class="form-group col-6">
                                         <div class="slider-header">
                                             <label class="form-label">Zoom Video</label>
-                                            <span class="slider-value" id="batch_zoomVal_${item.id}">${zoom}x</span>
+                                            <span class="slider-value" id="batch_zoomVal_${escapeHtml(item.id)}">${escapeHtml(zoom)}x</span>
                                         </div>
-                                        <input type="range" id="batch_zoom_${item.id}" class="form-slider batch-field" min="0.8" max="2.0" step="0.05" value="${zoom}">
+                                        <input type="range" id="batch_zoom_${escapeHtml(item.id)}" class="form-slider batch-field" min="0.8" max="2.0" step="0.05" value="${escapeHtml(zoom)}">
                                     </div>
                                     <div class="form-group col-6">
                                         <div class="slider-header">
                                             <label class="form-label">Pos Y Video</label>
-                                            <span class="slider-value" id="batch_videoYVal_${item.id}">${videoY}px</span>
+                                            <span class="slider-value" id="batch_videoYVal_${escapeHtml(item.id)}">${escapeHtml(videoY)}px</span>
                                         </div>
-                                        <input type="range" id="batch_videoY_${item.id}" class="form-slider batch-field" min="-500" max="500" step="10" value="${videoY}">
+                                        <input type="range" id="batch_videoY_${escapeHtml(item.id)}" class="form-slider batch-field" min="-500" max="500" step="10" value="${escapeHtml(videoY)}">
                                     </div>
                                 </div>
                                 <div class="form-row">
                                     <div class="form-group col-6">
                                         <div class="slider-header">
                                             <label class="form-label">Pos Y Tarjeta</label>
-                                            <span class="slider-value" id="batch_cardYVal_${item.id}">${cardY}px</span>
+                                            <span class="slider-value" id="batch_cardYVal_${escapeHtml(item.id)}">${escapeHtml(cardY)}px</span>
                                         </div>
-                                        <input type="range" id="batch_cardY_${item.id}" class="form-slider batch-field" min="50" max="1500" step="10" value="${cardY}">
+                                        <input type="range" id="batch_cardY_${escapeHtml(item.id)}" class="form-slider batch-field" min="50" max="1500" step="10" value="${escapeHtml(cardY)}">
                                     </div>
                                 </div>
                             </div>
@@ -2569,14 +3005,14 @@ function renderBatchTasks(autoExpandId = null) {
                             <!-- Footer Actions -->
                             <div class="batch-task-footer-bar">
                                 <div style="display: flex; gap: 8px;">
-                                    <button class="btn btn-primary btn-batch-save" data-id="${item.id}">
+                                    <button class="btn btn-primary btn-batch-save" data-id="${escapeHtml(item.id)}">
                                         <span>💾</span> Guardar Cambios
                                     </button>
-                                    <button class="btn btn-secondary btn-batch-load-editor" data-id="${item.id}" title="Cargar en el editor individual con todos estos valores">
+                                    <button class="btn btn-secondary btn-batch-load-editor" data-id="${escapeHtml(item.id)}" title="Cargar en el editor individual con todos estos valores">
                                         <span>📤</span> Abrir en Editor Individual
                                     </button>
                                 </div>
-                                <button class="btn btn-secondary btn-batch-delete-body" data-id="${item.id}" style="color: var(--accent-red);">
+                                <button class="btn btn-secondary btn-batch-delete-body" data-id="${escapeHtml(item.id)}" style="color: var(--accent-red);">
                                     <span>🗑️</span> Eliminar de Cola
                                 </button>
                             </div>
@@ -2585,32 +3021,32 @@ function renderBatchTasks(autoExpandId = null) {
                         <!-- Right Live 9:16 Mockup Column for THIS Task -->
                         <div class="batch-task-preview-column">
                             <span class="batch-task-preview-title">👁️ Vista Previa 9:16</span>
-                            <div class="phone-mockup-frame mockup-mini" id="batch_mockup_${item.id}">
+                            <div class="phone-mockup-frame mockup-mini" id="batch_mockup_${escapeHtml(item.id)}">
                                 <div class="phone-camera-notch"></div>
-                                <div class="mockup-bg-blur" id="batch_mockup_bg_${item.id}" ${thumbSrc ? `style="background-image: url('${thumbSrc}'); background-size: cover; background-position: center; filter: blur(14px); opacity: 0.55;"` : ''}></div>
+                                <div class="mockup-bg-blur" id="batch_mockup_bg_${escapeHtml(item.id)}" ${thumbSrc ? `style="background-image: url('${escapeHtml(thumbSrc)}'); background-size: cover; background-position: center; filter: blur(14px); opacity: 0.55;"` : ''}></div>
 
                                 <!-- Gameplay Container -->
-                                <div class="mockup-gameplay-container" id="batch_mockup_gameplay_${item.id}" style="transform: scale(${zoom}) translateY(${miniVideoY}px);">
-                                    ${thumbSrc ? `<img src="${thumbSrc}" id="batch_mockup_thumb_${item.id}" alt="${item.game_name}" style="width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 4px;" onerror="this.style.display='none';">` : ''}
+                                <div class="mockup-gameplay-container" id="batch_mockup_gameplay_${escapeHtml(item.id)}" style="transform: scale(${escapeHtml(zoom)}) translateY(${miniVideoY}px);">
+                                    ${thumbSrc ? `<img src="${escapeHtml(thumbSrc)}" id="batch_mockup_thumb_${escapeHtml(item.id)}" alt="${escapeHtml(item.game_name)}" style="width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 4px;" onerror="this.style.display='none';">` : ''}
                                     <div class="gameplay-placeholder-content" ${thumbSrc ? 'style="display: none;"' : ''}>
                                         <div class="play-circle">
                                             <div class="play-arrow"></div>
                                         </div>
-                                        <span class="gameplay-name-tag" id="batch_mockup_game_${item.id}">${item.game_name || 'Gameplay'}</span>
+                                        <span class="gameplay-name-tag" id="batch_mockup_game_${escapeHtml(item.id)}">${escapeHtml(item.game_name || 'Gameplay')}</span>
                                     </div>
                                 </div>
 
                                 <!-- Card Overlay -->
-                                <div class="mockup-card-overlay ${isClassic ? 'overlay-classic' : ''}" id="batch_mockup_card_${item.id}" style="top: ${miniCardTop}px; width: ${miniCardWidth}px; height: ${miniCardHeight}px; min-height: ${miniCardHeight}px; background-color: ${isClassic ? 'transparent' : bgColor}; border-color: ${isClassic ? 'transparent' : borderColor};">
+                                <div class="mockup-card-overlay ${isClassic ? 'overlay-classic' : ''}" id="batch_mockup_card_${escapeHtml(item.id)}" style="top: ${miniCardTop}px; width: ${miniCardWidth}px; height: ${miniCardHeight}px; min-height: ${miniCardHeight}px; background-color: ${isClassic ? 'transparent' : bgColor}; border-color: ${isClassic ? 'transparent' : borderColor};">
                                     <div class="card-author-row">
-                                        <div class="card-avatar" id="batch_mockup_avatar_${item.id}"></div>
+                                        <div class="card-avatar" id="batch_mockup_avatar_${escapeHtml(item.id)}"></div>
                                         <div class="card-author-meta">
-                                            <div class="card-username" id="batch_mockup_user_${item.id}" style="color: ${borderColor}; font-size: ${Math.round(72 * scaleMiniX)}px;">${username}</div>
-                                            <div class="card-handle" id="batch_mockup_handle_${item.id}" style="color: ${isColorLight(bgColor) ? '#6b7280' : '#9ca3af'}; font-size: ${Math.round(56 * scaleMiniX)}px;">${handle}</div>
+                                            <div class="card-username" id="batch_mockup_user_${escapeHtml(item.id)}" style="color: ${escapeHtml(borderColor)}; font-size: ${Math.round(72 * scaleMiniX)}px;">${escapeHtml(username)}</div>
+                                            <div class="card-handle" id="batch_mockup_handle_${escapeHtml(item.id)}" style="color: ${isColorLight(bgColor) ? '#6b7280' : '#9ca3af'}; font-size: ${Math.round(56 * scaleMiniX)}px;">${escapeHtml(handle)}</div>
                                         </div>
                                     </div>
-                                    <div class="card-hook-text" id="batch_mockup_hook_${item.id}" style="color: ${textColor}; font-size: ${miniFontSize}px; line-height: 1.3;">
-                                        ${hookText || 'Gancho publicitario pendiente de generar...'}
+                                    <div class="card-hook-text" id="batch_mockup_hook_${escapeHtml(item.id)}" style="color: ${escapeHtml(textColor)}; font-size: ${miniFontSize}px; line-height: 1.3;">
+                                        ${escapeHtml(hookText || 'Gancho publicitario pendiente de generar...')}
                                     </div>
                                 </div>
 
@@ -2621,7 +3057,7 @@ function renderBatchTasks(autoExpandId = null) {
                                     <div class="social-icon-btn">↗️<span>Share</span></div>
                                 </div>
                                 <div class="mockup-bottom-meta">
-                                    <div class="mockup-caption-user" id="batch_mockup_bottom_user_${item.id}">${handle}</div>
+                                    <div class="mockup-caption-user" id="batch_mockup_bottom_user_${escapeHtml(item.id)}">${escapeHtml(handle)}</div>
                                     <div class="mockup-caption-tag">#gaming #indiedev #shorts</div>
                                 </div>
                             </div>
@@ -2629,8 +3065,8 @@ function renderBatchTasks(autoExpandId = null) {
                             <!-- If video completed, show inline player -->
                             ${item.output_video ? `
                                 <div style="width: 100%; margin-top: 10px;">
-                                    <video controls src="${item.output_video}" style="width: 100%; border-radius: 8px; max-height: 180px; background: #000;"></video>
-                                    <a href="${item.output_video}" download="${item.output_filename || 'video.mp4'}" class="btn btn-primary btn-sm w-100" style="margin-top: 6px;">
+                                    <video controls src="${escapeHtml(item.output_video)}" style="width: 100%; border-radius: 8px; max-height: 180px; background: #000;"></video>
+                                    <a href="${escapeHtml(item.output_video)}" download="${escapeHtml(item.output_filename || 'video.mp4')}" class="btn btn-primary btn-sm w-100" style="margin-top: 6px;">
                                         <span>💾</span> Descargar Video
                                     </a>
                                 </div>
@@ -3532,13 +3968,13 @@ function displayBenchmarkResults(result) {
         const isFastest = (row.render_time_sec === result.fastest_time_sec);
         html += `
             <tr style="${isFastest ? 'background: rgba(16, 185, 129, 0.1);' : ''}">
-                <td><strong>${row.resolution}</strong></td>
-                <td><span class="badge-channel" style="background: rgba(255,255,255,0.1);">${row.hardware}</span></td>
-                <td>${row.blur_level}</td>
-                <td><strong>${row.render_time_sec} s</strong></td>
-                <td><span style="color: var(--accent-cyan); font-family: 'JetBrains Mono';">${row.time_per_sec_video} s/s</span></td>
-                <td>${row.speedup_realtime}x real</td>
-                <td>${row.file_size_mb} MB</td>
+                <td><strong>${escapeHtml(row.resolution)}</strong></td>
+                <td><span class="badge-channel" style="background: rgba(255,255,255,0.1);">${escapeHtml(row.hardware)}</span></td>
+                <td>${escapeHtml(row.blur_level)}</td>
+                <td><strong>${escapeHtml(row.render_time_sec)} s</strong></td>
+                <td><span style="color: var(--accent-cyan); font-family: 'JetBrains Mono';">${escapeHtml(row.time_per_sec_video)} s/s</span></td>
+                <td>${escapeHtml(row.speedup_realtime)}x real</td>
+                <td>${escapeHtml(row.file_size_mb)} MB</td>
             </tr>
         `;
     });
@@ -3602,11 +4038,11 @@ async function loadBenchmarkHistory() {
                 <div class="trailer-row" style="cursor: pointer;" onclick="loadHistoryRunIntoView(${idx})">
                     <div class="trailer-meta">
                         <div class="trailer-game-tag">
-                            📅 ${run.date}
-                            <span class="badge-channel badge-igd">Clip: ${run.clip_duration_sec}s</span>
+                            📅 ${escapeHtml(run.date)}
+                            <span class="badge-channel badge-igd">Clip: ${escapeHtml(run.clip_duration_sec)}s</span>
                         </div>
-                        <div class="trailer-title"><strong>Origen:</strong> ${run.source}</div>
-                        <div class="trailer-date">⚡ <strong>Más Rápida:</strong> ${run.fastest_combo} (${run.fastest_time_sec}s) • 4K vs 1080p: ${run.ratio_4k_vs_1080p}x</div>
+                        <div class="trailer-title"><strong>Origen:</strong> ${escapeHtml(run.source)}</div>
+                        <div class="trailer-date">⚡ <strong>Más Rápida:</strong> ${escapeHtml(run.fastest_combo)} (${escapeHtml(run.fastest_time_sec)}s) • 4K vs 1080p: ${escapeHtml(run.ratio_4k_vs_1080p)}x</div>
                     </div>
                     <div class="trailer-actions">
                         <button class="btn btn-primary btn-sm">Ver Resultados</button>
@@ -3622,7 +4058,7 @@ async function loadBenchmarkHistory() {
         }
 
     } catch (e) {
-        listEl.innerHTML = `<div class="text-muted">Error cargando historial: ${e}</div>`;
+        listEl.innerHTML = `<div class="text-muted">Error cargando historial: ${escapeHtml(e && e.message ? e.message : e)}</div>`;
     }
 }
 
@@ -3647,6 +4083,7 @@ let activeElevenVoiceFilter = 'all';
 function initSettingsTab() {
     const btnSave = document.getElementById('btnSaveConfig');
     if (btnSave) btnSave.addEventListener('click', saveSettings);
+    bindApiKeyClearButtons(document);
 
     const btnTest = document.getElementById('btnTestElevenVoices');
     if (btnTest) btnTest.addEventListener('click', () => testElevenLabsVoices(false));
@@ -3742,14 +4179,106 @@ function updateElevenActiveLabel(voiceId) {
     }
 }
 
+// ---- API key fields (masked) ----
+// GET /api/config only returns masked keys ("••••abcd") plus *_set booleans.
+// The mask is shown as a placeholder and never goes into the input value, so
+// saving never overwrites a real key with its mask. Only typed keys are sent.
+const API_KEY_FIELDS = [
+    { inputId: 'cfgGroqKey', field: 'groq_api_key' },
+    { inputId: 'cfgGeminiKey', field: 'gemini_api_key' },
+    { inputId: 'cfgElevenKey', field: 'elevenlabs_api_key' },
+];
+
+function maskApiKeyForDisplay(value) {
+    const text = String(value ?? '').trim();
+    if (!text) return '';
+    if (text.includes('•')) return text;           // already masked by the server
+    return '••••' + text.slice(-4);                 // older servers sent raw keys
+}
+
+// Returns the key the user typed, or '' when the field is empty or still
+// holds a masked placeholder value.
+function typedApiKeyValue(inputOrId) {
+    const input = typeof inputOrId === 'string' ? document.getElementById(inputOrId) : inputOrId;
+    const value = (input && typeof input.value === 'string') ? input.value.trim() : '';
+    if (!value || value.includes('•')) return '';
+    return value;
+}
+
+function applyMaskedApiKeyField(inputId, rawOrMasked, isSet) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    if (input.dataset && input.dataset.defaultPlaceholder === undefined) {
+        input.dataset.defaultPlaceholder = input.getAttribute ? (input.getAttribute('placeholder') || '') : (input.placeholder || '');
+    }
+    const masked = maskApiKeyForDisplay(rawOrMasked);
+    const saved = isSet === true || (isSet === undefined && Boolean(masked));
+    input.value = '';
+    input.placeholder = saved
+        ? `Guardada ${masked || '••••'} · escribe una nueva para cambiarla`
+        : ((input.dataset && input.dataset.defaultPlaceholder) || '');
+    if (input.dataset) input.dataset.keySaved = saved ? 'true' : 'false';
+    // Optional "Borrar clave guardada" button: visible only when a key is saved.
+    const clearBtn = document.getElementById(`${inputId}Clear`);
+    if (clearBtn && clearBtn.style) clearBtn.style.display = saved ? '' : 'none';
+}
+
+// Empty fields never erase a saved key (they mean "keep it"); this explicit action
+// does, through the server's clear_keys option.
+async function clearSavedApiKey(field, endpoint = '/api/config') {
+    if (!field) return;
+    if (typeof confirm === 'function' && !confirm('¿Borrar esta clave guardada en .env? Podrás escribir otra cuando quieras.')) return;
+    try {
+        const res = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ clear_keys: [field] }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            const detail = typeof data.detail === 'string' ? data.detail : '';
+            throw new Error(detail || `HTTP ${res.status}`);
+        }
+        showToast('Clave borrada de .env', 'success');
+        if (endpoint === '/api/gamedev/settings') {
+            if (typeof loadGamedevSettings === 'function') await loadGamedevSettings();
+        } else {
+            await loadSettings();
+        }
+    } catch (e) {
+        showToast('No se pudo borrar la clave: ' + (e && e.message ? e.message : e), 'error');
+    }
+}
+
+function bindApiKeyClearButtons(root = document) {
+    const buttons = root && typeof root.querySelectorAll === 'function' ? root.querySelectorAll('.api-key-clear-btn') : [];
+    Array.from(buttons || []).forEach(btn => {
+        if (!btn || (btn.dataset && btn.dataset.clearBound === 'true')) return;
+        if (btn.dataset) btn.dataset.clearBound = 'true';
+        btn.addEventListener('click', () => clearSavedApiKey(btn.dataset.clearKey, btn.dataset.clearEndpoint || '/api/config'));
+    });
+}
+
+function buildConfigSavePayload() {
+    const payload = {};
+    API_KEY_FIELDS.forEach(({ inputId, field }) => {
+        const typed = typedApiKeyValue(inputId);
+        if (typed) payload[field] = typed;
+    });
+    const voiceId = (document.getElementById('cfgVoiceId')?.value || '').trim();
+    if (voiceId) payload.elevenlabs_voice_id = voiceId;
+    return payload;
+}
+// ---- End API key fields ----
+
 async function loadSettings() {
     window.loadApiUsage?.();
     try {
         const res = await fetch('/api/config');
         const data = await res.json();
-        document.getElementById('cfgGroqKey').value = data.groq_api_key || '';
-        document.getElementById('cfgGeminiKey').value = data.gemini_api_key || '';
-        document.getElementById('cfgElevenKey').value = data.elevenlabs_api_key || '';
+        applyMaskedApiKeyField('cfgGroqKey', data.groq_api_key, data.groq_api_key_set);
+        applyMaskedApiKeyField('cfgGeminiKey', data.gemini_api_key, data.gemini_api_key_set);
+        applyMaskedApiKeyField('cfgElevenKey', data.elevenlabs_api_key, data.elevenlabs_api_key_set);
         document.getElementById('cfgVoiceId').value = data.elevenlabs_voice_id || '';
         updateElevenActiveLabel(data.elevenlabs_voice_id || '');
     } catch (e) {
@@ -3758,12 +4287,11 @@ async function loadSettings() {
 }
 
 async function saveSettings() {
-    const payload = {
-        groq_api_key: document.getElementById('cfgGroqKey').value.trim(),
-        gemini_api_key: document.getElementById('cfgGeminiKey').value.trim(),
-        elevenlabs_api_key: document.getElementById('cfgElevenKey').value.trim(),
-        elevenlabs_voice_id: document.getElementById('cfgVoiceId').value.trim(),
-    };
+    const payload = buildConfigSavePayload();
+    if (!Object.keys(payload).length) {
+        showToast('No hay cambios que guardar: escribe una clave nueva o un Voice ID.', 'info');
+        return;
+    }
 
     try {
         const res = await fetch('/api/config', {
@@ -3771,17 +4299,24 @@ async function saveSettings() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            const detail = typeof data.detail === 'string' ? data.detail : (data.detail ? JSON.stringify(data.detail) : '');
+            throw new Error(detail || `HTTP ${res.status}`);
+        }
         showToast(data.message || 'Configuración guardada', 'success');
         window.loadApiUsage?.(true);
+        // Clear typed keys and show the new masks.
+        await loadSettings();
     } catch (e) {
-        showToast('Error guardando configuración: ' + e, 'error');
+        showToast('Error guardando configuración: ' + (e && e.message ? e.message : e), 'error');
     }
 }
 
 async function testElevenLabsVoices(forceRefresh = false) {
-    const keyInput = document.getElementById('cfgElevenKey');
-    const key = keyInput ? keyInput.value.trim() : '';
+    // The key never travels in the URL. A key typed (not yet saved) is tested by
+    // sending it in a POST body; otherwise the server uses the key saved in .env.
+    const typedElevenKey = typedApiKeyValue('cfgElevenKey');
 
     const btnTest = document.getElementById('btnTestElevenVoices');
     const originalBtnHtml = btnTest ? btnTest.innerHTML : '';
@@ -3791,8 +4326,13 @@ async function testElevenLabsVoices(forceRefresh = false) {
     }
 
     try {
-        const query = key ? `?api_key=${encodeURIComponent(key)}` : '';
-        const res = await fetch(`/api/elevenlabs/voices${query}`);
+        const res = typedElevenKey
+            ? await fetch('/api/elevenlabs/voices', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ api_key: typedElevenKey }),
+            })
+            : await fetch('/api/elevenlabs/voices');
         const data = await res.json();
 
         if (!res.ok || data.status === 'error') {
@@ -3897,17 +4437,17 @@ function renderElevenVoicesList() {
                     ${v.age ? `<span class="eleven-tag">${escapeHtml(v.age)}</span>` : ''}
                 </div>
                 <div class="eleven-voice-meta">
-                    <span>ID: <code class="eleven-voice-id-code">${v.voice_id}</code></span>
+                    <span>ID: <code class="eleven-voice-id-code">${escapeHtml(v.voice_id)}</code></span>
                     ${v.description ? `<span style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(v.description)}">${escapeHtml(v.description)}</span>` : ''}
                 </div>
             </div>
             <div class="eleven-voice-actions">
                 ${v.preview_url ? `
-                    <button type="button" class="btn-play-preview ${isPlaying ? 'playing' : ''}" data-preview-url="${v.preview_url}" data-voice-id="${v.voice_id}">
+                    <button type="button" class="btn-play-preview ${isPlaying ? 'playing' : ''}" data-preview-url="${escapeHtml(v.preview_url)}" data-voice-id="${escapeHtml(v.voice_id)}">
                         <span>${isPlaying ? '⏸' : '▶'}</span> Muestra
                     </button>
                 ` : ''}
-                <button type="button" class="btn-select-voice" data-voice-id="${v.voice_id}" data-voice-name="${escapeHtml(v.name)}">
+                <button type="button" class="btn-select-voice" data-voice-id="${escapeHtml(v.voice_id)}" data-voice-name="${escapeHtml(v.name)}">
                     ${isSelected ? '✓ Activa' : 'Usar'}
                 </button>
             </div>
@@ -4021,7 +4561,9 @@ function togglePlayPreview(previewUrl, voiceId, btnElem) {
 }
 
 async function synthesizeElevenVoiceTest() {
-    const key = document.getElementById('cfgElevenKey')?.value.trim() || '';
+    // Only a key the user has just typed is sent (in the POST body); otherwise
+    // the server falls back to the key saved in .env.
+    const key = typedApiKeyValue('cfgElevenKey');
     const voiceId = document.getElementById('cfgVoiceId')?.value.trim() || '';
     const text = document.getElementById('elevenTestSpeechInput')?.value.trim() || '';
 
@@ -4050,7 +4592,7 @@ async function synthesizeElevenVoiceTest() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                api_key: key,
+                api_key: key || undefined,
                 voice_id: voiceId,
                 text: text,
             })
@@ -4110,15 +4652,7 @@ async function synthesizeElevenVoiceTest() {
    GameDev Promo Content Automation — Game Profiles & Footage Module
    ============================================================================= */
 
-function escapeHtml(str) {
-    if (str === null || str === undefined) return '';
-    return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-}
+// escapeHtml() is defined once, next to showToast(), near the top of this file.
 
 function sanitizeFolderName(name) {
     if (!name) return '';
@@ -4161,7 +4695,7 @@ function initGamedevPromoApp() {
         btnOpenActiveFootage.addEventListener('click', () => {
             const game = state.gamedev.games.find(g => g.id === state.gamedev.activeGameId);
             if (game && game.footage_folder) {
-                openFootageFolder(game.footage_folder);
+                openFootageFolder(game.footage_folder, game.id);
             } else {
                 showToast('No hay juego activo o carpeta asignada', 'warning');
             }
@@ -4179,7 +4713,8 @@ function initGamedevPromoApp() {
                 document.getElementById('gameProfileFootage').value = path;
             }
             if (path) {
-                openFootageFolder(path);
+                const editingId = (document.getElementById('gameProfileId')?.value || '').trim();
+                openFootageFolder(path, editingId || null);
             } else {
                 showToast('Ingresa un nombre de juego para crear su carpeta', 'warning');
             }
@@ -4700,7 +5235,7 @@ function renderGameProfiles(filterQuery = '') {
         const hasYT = Boolean(socials.youtube);
 
         return `
-            <div class="game-card ${isActive ? 'active-selected' : ''}" data-game-id="${game.id}" onclick="handleGameCardClick(event, '${game.id}')" style="--game-accent-color: ${escapeHtml(color)}; --game-color-rgb: ${rgb};">
+            <div class="game-card ${isActive ? 'active-selected' : ''}" data-game-id="${escapeHtml(game.id)}" data-action="game-card-open" style="--game-accent-color: ${escapeHtml(color)}; --game-color-rgb: ${escapeHtml(rgb)};">
                 <div class="game-card-header">
                     <div class="game-card-left">
                         <div class="game-card-icon">${escapeHtml(icon)}</div>
@@ -4750,16 +5285,16 @@ function renderGameProfiles(filterQuery = '') {
                             <span>✓</span> Activo
                         </button>
                     ` : `
-                        <button class="btn btn-secondary btn-sm btn-select-game" onclick="event.stopPropagation(); selectActiveGame('${game.id}')">
+                        <button class="btn btn-secondary btn-sm btn-select-game" data-action="game-select" data-game-id="${escapeHtml(game.id)}">
                             <span>⚡</span> Activar
                         </button>
                     `}
 
                     <div class="card-action-btns">
-                        <button class="btn-icon-sm btn-edit-game" onclick="event.stopPropagation(); openEditGameModal('${game.id}')" title="Editar este perfil">
+                        <button class="btn-icon-sm btn-edit-game" data-action="game-edit" data-game-id="${escapeHtml(game.id)}" title="Editar este perfil">
                             <span>✏️</span> Editar
                         </button>
-                        <button class="btn-icon-sm delete btn-del-game" onclick="event.stopPropagation(); deleteGameProfile('${game.id}')" title="Eliminar juego">
+                        <button class="btn-icon-sm delete btn-del-game" data-action="game-delete" data-game-id="${escapeHtml(game.id)}" title="Eliminar juego">
                             <span>🗑️</span>
                         </button>
                     </div>
@@ -4768,7 +5303,7 @@ function renderGameProfiles(filterQuery = '') {
         `;
     }).join('');
 
-    grids.forEach(grid => { grid.innerHTML = cardsHtml + addCardHtml; });
+    grids.forEach(grid => { grid.innerHTML = cardsHtml + addCardHtml; bindDataActions(grid); });
 }
 
 function handleGameCardClick(event, gameId) {
@@ -5468,10 +6003,16 @@ async function loadGameInsights(gameId) {
 
         state.gamedev.insightsData = data.insights || [];
         state.gamedev.insightsSummary = data.summary || null;
+        state.gamedev.insightsSimulated = Boolean(data.simulated);
 
         renderInsightsKPIs(data.summary);
         renderInsightsChart(data.insights, data.accent_color);
         renderInsightsTable(data.insights);
+        if (data.simulated) {
+            // Demo metrics for a new profile: shown for orientation, never saved.
+            const elRowCount = document.getElementById('insightsRowsCount');
+            if (elRowCount) elRowCount.textContent = `${elRowCount.textContent} · Datos de demostración (no guardados)`;
+        }
     } catch (err) {
         console.error('Error cargando insights:', err);
         showToast('Error cargando métricas del juego', 'error');
@@ -5673,7 +6214,7 @@ function renderInsightsTable(insights, filterQuery = '') {
                 <td style="text-align: center;">
                     <label class="automated-toggle-wrap" title="${isAutomated ? 'Vídeo automatizado (incluido en views totales). Clic para desmarcar.' : 'Vídeo manual (excluido de views totales). Clic para marcar como automatizado.'}">
                         <input type="checkbox" class="automated-row-checkbox" ${isAutomated ? 'checked' : ''} 
-                               onchange="toggleInsightAutomated('${escapeHtml(date)}', this.checked)">
+                               data-action="insight-toggle-automated" data-action-event="change" data-date="${escapeHtml(date)}">
                         <span class="automated-pill-badge ${isAutomated ? 'is-auto' : 'is-manual'}">
                             ${isAutomated ? '🤖 Sí' : '👤 No'}
                         </span>
@@ -5692,7 +6233,7 @@ function renderInsightsTable(insights, filterQuery = '') {
                     ${total.toLocaleString()}
                 </td>
                 <td>
-                    <div class="editable-hook-cell" onclick="startEditingHook(this, '${escapeHtml(date)}')" title="Haz clic para editar el gancho de este vídeo">
+                    <div class="editable-hook-cell" data-action="insight-edit-hook" data-date="${escapeHtml(date)}" title="Haz clic para editar el gancho de este vídeo">
                         <span class="editable-hook-text ${!hook ? 'placeholder-hint' : ''}">
                             ${hook ? escapeHtml(hook) : '✏️ Clic para escribir hook...'}
                         </span>
@@ -5700,13 +6241,14 @@ function renderInsightsTable(insights, filterQuery = '') {
                     </div>
                 </td>
                 <td style="text-align: center;">
-                    <button class="btn-del-insight-row" onclick="deleteInsightRow('${escapeHtml(date)}')" title="Eliminar este vídeo de insights">
+                    <button class="btn-del-insight-row" data-action="insight-delete" data-date="${escapeHtml(date)}" title="Eliminar este vídeo de insights">
                         🗑️
                     </button>
                 </td>
             </tr>
         `;
     }).join('');
+    bindDataActions(tbody);
 }
 
 async function toggleInsightAutomated(uploadDate, isChecked) {
@@ -5818,7 +6360,8 @@ function renderSingleHookCell(cellEl, uploadDate, hookVal) {
         </span>
         <span class="editable-hook-pencil">✏️</span>
     `;
-    cellEl.onclick = () => startEditingHook(cellEl, uploadDate);
+    // Cells rendered by the table already carry a data-action listener.
+    if (!cellEl.__dataActionBound) cellEl.onclick = () => startEditingHook(cellEl, uploadDate);
 }
 
 async function saveHookToServer(cellEl, uploadDate, newHook) {
@@ -6144,7 +6687,7 @@ function renderEvolutionsTable(evolutions, filterQuery = '', filterVideoDate = '
             <tr class="${isSelected ? 'row-selected' : ''}" data-upload-date="${escapeHtml(date)}">
                 <td style="text-align: center;">
                     <input type="checkbox" class="evo-row-checkbox" ${isSelected ? 'checked' : ''} 
-                           onchange="toggleCompareVideoSelection('${escapeHtml(date)}')" 
+                           data-action="compare-toggle" data-action-event="change" data-date="${escapeHtml(date)}" 
                            title="${isSelected ? 'Quitar de la comparativa' : 'Seleccionar este vídeo para comparar'}">
                 </td>
                 <td class="cell-date-id">
@@ -6174,6 +6717,7 @@ function renderEvolutionsTable(evolutions, filterQuery = '', filterVideoDate = '
             </tr>
         `;
     }).join('');
+    bindDataActions(tbody);
 }
 
 function toggleCompareVideoSelection(uploadDate) {
@@ -6291,10 +6835,11 @@ function renderCompareModalChips() {
             <div class="compare-chip" style="border-color: ${color.border}40;">
                 <span class="compare-chip-dot" style="background: ${color.dot}; box-shadow: 0 0 6px ${color.dot};"></span>
                 <span class="compare-chip-title" title="${escapeHtml(displayLabel)}">${escapeHtml(displayLabel)}</span>
-                <button type="button" class="compare-chip-remove" onclick="toggleCompareVideoSelection('${escapeHtml(date)}')" title="Quitar vídeo de la comparativa">×</button>
+                <button type="button" class="compare-chip-remove" data-action="compare-toggle" data-date="${escapeHtml(date)}" title="Quitar vídeo de la comparativa">×</button>
             </div>
         `;
     }).join('');
+    bindDataActions(container);
 }
 
 function parseTPlusHours(tPlusStr) {
@@ -6542,15 +7087,9 @@ async function loadGamedevSettings() {
         if (!res.ok) return;
         const data = await res.json();
 
-        const inputScrape = document.getElementById('inputScrapeCreatorsKey');
-        if (inputScrape && data.scrapecreators_api_key) {
-            inputScrape.value = data.scrapecreators_api_key;
-        }
-
-        const inputSteam = document.getElementById('inputSteamworksKey');
-        if (inputSteam && data.steamworks_api_key) {
-            inputSteam.value = data.steamworks_api_key;
-        }
+        // Never place keys in the inputs: show the mask as a placeholder only.
+        applyMaskedApiKeyField('inputScrapeCreatorsKey', data.scrapecreators_masked || data.scrapecreators_api_key, Boolean(data.has_scrapecreators_key));
+        applyMaskedApiKeyField('inputSteamworksKey', data.steamworks_masked || data.steamworks_api_key, Boolean(data.has_steamworks_key));
 
         updateScrapeKeyBadge(data.has_scrapecreators_key);
         updateSteamKeyBadge(data.has_steamworks_key);
@@ -6593,8 +7132,13 @@ async function saveGamedevSettings() {
     const btn = document.getElementById('btnSaveGamedevSettings') || document.getElementById('btnSaveScrapeCreatorsKey');
     const btnText = document.getElementById('btnSaveSettingsText') || document.getElementById('btnSaveScrapeKeyText');
     
-    const scKey = inputScrape ? inputScrape.value.trim() : '';
-    const steamKey = inputSteam ? inputSteam.value.trim() : '';
+    // Only keys typed by the user are sent; empty fields keep the saved key.
+    const scKey = typedApiKeyValue(inputScrape);
+    const steamKey = typedApiKeyValue(inputSteam);
+    if (!scKey && !steamKey) {
+        showToast('No hay claves nuevas que guardar.', 'info');
+        return;
+    }
 
     if (btnText) btnText.textContent = 'Guardando...';
     if (btn) btn.disabled = true;
@@ -6604,8 +7148,8 @@ async function saveGamedevSettings() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                scrapecreators_api_key: scKey,
-                steamworks_api_key: steamKey
+                scrapecreators_api_key: scKey || undefined,
+                steamworks_api_key: steamKey || undefined
             })
         });
         if (!res.ok) throw new Error('Error al guardar configuración');
@@ -6613,6 +7157,7 @@ async function saveGamedevSettings() {
 
         updateScrapeKeyBadge(data.has_scrapecreators_key);
         updateSteamKeyBadge(data.has_steamworks_key);
+        await loadGamedevSettings();
         showToast('Claves de API guardadas con éxito en .env', 'success');
         
         // Refresh Steam Impact data if current dashboard open
@@ -6797,18 +7342,29 @@ async function testFootageFolder() {
     }
 }
 
-async function openFootageFolder(folderPath) {
+async function openFootageFolder(folderPath, gameId = null) {
     if (!folderPath) {
         showToast('No hay ruta de carpeta configurada para este juego', 'warning');
         return;
     }
 
+    // The server opens folders only for saved game profiles
+    // (POST /api/gamedev/games/{game_id}/open-folder), never arbitrary paths.
+    const games = (state.gamedev && Array.isArray(state.gamedev.games)) ? state.gamedev.games : [];
+    const resolvedId = gameId || (games.find(g => g.footage_folder === folderPath) || {}).id || null;
+    if (!resolvedId) {
+        showToast('Guarda primero el perfil del juego para crear y abrir su carpeta de footage.', 'warning');
+        return;
+    }
+
     try {
-        const res = await fetch('/api/gamedev/open-folder', {
+        const res = await fetch(`/api/gamedev/games/${encodeURIComponent(resolvedId)}/open-folder`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ folder_path: folderPath }),
         });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || `HTTP ${res.status}`);
+        }
         const data = await res.json();
         if (data.status === 'ok') {
             showToast(`Abriendo carpeta en el Explorador: ${folderPath}`, 'info');
@@ -7282,11 +7838,11 @@ function renderGameFootageGrid() {
         return `
             <div class="footage-card ${isSel ? 'selected' : ''}" data-filename="${escapeHtml(clip.filename)}">
                 <div class="footage-card-select-overlay">
-                    <input type="checkbox" ${isSel ? 'checked' : ''} onchange="toggleFootageClipSelection('${escapeHtml(clip.filename)}')" title="Seleccionar para el generador">
+                    <input type="checkbox" ${isSel ? 'checked' : ''} data-action="footage-toggle" data-action-event="change" data-filename="${escapeHtml(clip.filename)}" title="Seleccionar para el generador">
                 </div>
-                <div class="footage-thumb-wrap" onclick="toggleFootageClipSelection('${escapeHtml(clip.filename)}')">
+                <div class="footage-thumb-wrap" data-action="footage-toggle" data-filename="${escapeHtml(clip.filename)}">
                     ${videoSrc ? `
-                        <video src="${videoSrc}" preload="metadata" muted class="footage-thumb-video" onmouseover="this.play()" onmouseout="this.pause();this.currentTime=0;"></video>
+                        <video src="${escapeHtml(videoSrc)}" preload="metadata" muted class="footage-thumb-video" onmouseover="this.play()" onmouseout="this.pause();this.currentTime=0;"></video>
                     ` : `
                         <div class="footage-thumb-placeholder">🎬</div>
                     `}
@@ -7302,13 +7858,14 @@ function renderGameFootageGrid() {
                     <span style="font-size: 11px; color: ${isSel ? '#a78bfa' : '#64748b'}; font-weight: 600;">
                         ${isSel ? '✓ Seleccionado' : '⚪ Deseleccionado'}
                     </span>
-                    <button type="button" class="btn-del-footage" onclick="deleteGameFootageClip('${state.gamedev.currentDashboardGameId}', '${escapeHtml(clip.filename)}')" title="Eliminar clip">
+                    <button type="button" class="btn-del-footage" data-action="footage-delete" data-game-id="${escapeHtml(state.gamedev.currentDashboardGameId)}" data-filename="${escapeHtml(clip.filename)}" title="Eliminar clip">
                         🗑️
                     </button>
                 </div>
             </div>
         `;
     }).join('');
+    bindDataActions(grid);
 }
 
 function toggleFootageClipSelection(filename) {
@@ -7401,7 +7958,7 @@ async function openCurrentGameFootageFolder() {
     const gameId = state.gamedev.currentDashboardGameId;
     if (!gameId) return;
     try {
-        const res = await fetch(`/api/gamedev/games/${gameId}/open-folder`, { method: 'POST' });
+        const res = await fetch(`/api/gamedev/games/${encodeURIComponent(gameId)}/open-folder`, { method: 'POST' });
         const data = await res.json();
         if (data.status === 'ok') {
             showToast('Carpeta abierta en el Explorador de archivos', 'info');
@@ -7431,9 +7988,10 @@ function updateGeneratorSelectedFootage() {
             chipsWrap.innerHTML = selected.map(c => `
                 <span class="gen-footage-chip" title="${escapeHtml(c.filename)}">
                     <span>🎬 ${escapeHtml(c.filename)}</span>
-                    <span class="chip-remove" onclick="toggleFootageClipSelection('${escapeHtml(c.filename)}')" title="Quitar clip">✕</span>
+                    <span class="chip-remove" data-action="footage-toggle" data-filename="${escapeHtml(c.filename)}" title="Quitar clip">✕</span>
                 </span>
             `).join('');
+            bindDataActions(chipsWrap);
         }
     }
 
@@ -7598,23 +8156,24 @@ async function generateGamedevHooks() {
     }
 
     try {
-        const count = state.gamedev.generator.videoCount || 3;
-        const res = await fetch('/api/hooks/multiple', {
+        // The UI always shows three hook slots; the server caps count at 3.
+        const res = await fetch('/api/hook/generate-multiple', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 game_name: game.name,
-                count: Math.max(3, count),
+                count: 3,
             }),
         });
 
         if (!res.ok) {
             const err = await res.json().catch(() => ({}));
-            throw new Error(err.detail || 'Error al generar hooks con IA');
+            const detail = typeof err.detail === 'string' ? err.detail : (err.detail ? JSON.stringify(err.detail) : '');
+            throw new Error(detail || 'Error al generar hooks con IA');
         }
 
         const data = await res.json();
-        const hooks = data.hooks || [];
+        const hooks = Array.isArray(data.hooks) ? data.hooks.filter(h => typeof h === 'string' && h.trim()) : [];
 
         if (hooks.length > 0) {
             hooks.forEach((h, idx) => {
@@ -7626,6 +8185,8 @@ async function generateGamedevHooks() {
             });
             showToast('¡Ganchos publicitarios generados con IA de Steam!', 'success');
             updateGamedevGeneratorMockup();
+        } else {
+            showToast('La IA no devolvió ganchos. Prueba de nuevo.', 'warning');
         }
     } catch (e) {
         console.error('generateGamedevHooks error:', e);
@@ -7853,7 +8414,7 @@ function renderGamedevPromoResults(result) {
             tabsContainer.style.display = 'flex';
             tabsContainer.innerHTML = videos.map((v, i) => `
                 <button type="button" class="result-vtab ${i === 0 ? 'active' : ''}" onclick="selectGamedevResultVariant(${i})">
-                    Vídeo #${v.variant_index || (i + 1)}
+                    Vídeo #${escapeHtml(v.variant_index || (i + 1))}
                 </button>
             `).join('');
         } else {
@@ -8135,28 +8696,14 @@ function initPromosTab() {
     // -------------------------------------------------------------------------
     // 2. MODAL 1: Hook, Guión & Locución
     // -------------------------------------------------------------------------
-    // Hook Cards Selection
-    const hookCardSteam = document.getElementById('labelHookSteam');
-    const hookCardSoInThis = document.getElementById('labelHookSoInThis');
-
-    if (hookCardSteam) {
-        hookCardSteam.addEventListener('click', () => {
-            state.promos.hookType = 'steam_new_game';
-            hookCardSteam.classList.add('active');
-            if (hookCardSoInThis) hookCardSoInThis.classList.remove('active');
-            const radio = hookCardSteam.querySelector('input[type="radio"]');
-            if (radio) radio.checked = true;
-        });
-    }
-
-    if (hookCardSoInThis) {
-        hookCardSoInThis.addEventListener('click', () => {
-            state.promos.hookType = 'so_in_this_new_game';
-            hookCardSoInThis.classList.add('active');
-            if (hookCardSteam) hookCardSteam.classList.remove('active');
-            const radio = hookCardSoInThis.querySelector('input[type="radio"]');
-            if (radio) radio.checked = true;
-        });
+    // Hook Cards Selection (Steam / So in this / Directo / Entrada propia)
+    Object.entries(PROMO_HOOK_CARD_IDS).forEach(([hookValue, cardId]) => {
+        const card = document.getElementById(cardId);
+        if (card) card.addEventListener('click', () => setPromosHookType(hookValue));
+    });
+    const promosOpeningInput = document.getElementById('promosOpeningText');
+    if (promosOpeningInput) {
+        promosOpeningInput.addEventListener('input', () => { state.promos.openingText = promosOpeningInput.value; });
     }
 
     // Briefing and Tone
@@ -8613,12 +9160,13 @@ function handlePromoStep0Next(e) {
 
 function handlePromoModal1Next(e) {
     if (e && e.preventDefault) e.preventDefault();
+    if (normalizeHookType(state.promos.hookType) === 'custom' && !promosOpeningText()) {
+        showToast('«Entrada propia» sin frase: se usará la entrada Steam por defecto («Here\'s a new Steam game») con su rótulo. Escribe la frase o elige otra entrada si no la quieres.', 'warning');
+    }
     let script = (state.promos.v2ScriptText || document.getElementById('promosV2ScriptText')?.value || '').trim();
     if (!script && !state.promos.v2VoicePath) {
         const gameName = (document.getElementById('promosGameName')?.value || 'este videojuego').trim();
-        const defaultScript = state.promos.hookType === 'steam_new_game'
-            ? `Here's a new Steam Game you need to check out. Experience intense gameplay and unique worlds in ${gameName}. Wishlist now on Steam!`
-            : `So in this new game, you dive into thrilling adventures. Check out ${gameName} and add it to your wishlist today!`;
+        const defaultScript = defaultPromoScriptForHook(state.promos.hookType, gameName, promosOpeningText());
         state.promos.v2ScriptText = defaultScript;
         const scriptInput = document.getElementById('promosV2ScriptText');
         if (scriptInput) scriptInput.value = defaultScript;
@@ -8648,12 +9196,10 @@ function openPromoModal1() {
             return;
         }
 
-        // Sync active hook type
-        const isSteamHook = (state.promos.hookType === 'steam_new_game');
-        const hookCardSteam = document.getElementById('labelHookSteam');
-        const hookCardSoInThis = document.getElementById('labelHookSoInThis');
-        if (hookCardSteam) hookCardSteam.classList.toggle('active', isSteamHook);
-        if (hookCardSoInThis) hookCardSoInThis.classList.toggle('active', !isSteamHook);
+        // Sync active hook type (4 options) and the custom opening phrase
+        setPromosHookType(state.promos.hookType);
+        const promosOpeningEl = document.getElementById('promosOpeningText');
+        if (promosOpeningEl && state.promos.openingText && !promosOpeningEl.value) promosOpeningEl.value = state.promos.openingText;
 
         // Sync briefing & tone
         const briefingInput = document.getElementById('promosV2Briefing');
@@ -8709,7 +9255,7 @@ function openPromoModal2() {
             return;
         }
 
-        const isSteamHook = (state.promos.hookType === 'steam_new_game');
+        const isSteamHook = (promosEffectiveHookType() === 'steam_new_game');
         const steamHookGroup = document.getElementById('promosSteamHookGroup');
         const btnPrevSteam = document.getElementById('btnPreviewSteamHook');
 
@@ -8879,7 +9425,7 @@ async function loadPromosSavedGames(selectedFolder = null) {
             state.promos.savedGames.forEach(g => {
                 const isSelected = selectedFolder && (g.folder_name === selectedFolder || g.game_name === selectedFolder);
                 const breakdownTag = g.has_breakdowns ? ' · ⚡ IA Listo' : '';
-                html += `<option value="${g.folder_name}" ${isSelected ? 'selected' : ''}>${g.game_name} (${g.video_count} clip${g.video_count === 1 ? '' : 's'}${breakdownTag})</option>`;
+                html += `<option value="${escapeHtml(g.folder_name)}" ${isSelected ? 'selected' : ''}>${escapeHtml(g.game_name)} (${escapeHtml(g.video_count)} clip${g.video_count === 1 ? '' : 's'}${breakdownTag})</option>`;
             });
             selectEl.innerHTML = html;
         }
@@ -9010,7 +9556,7 @@ function renderPromosFootageList() {
             <div class="promos-footage-item">
                 <div class="promos-footage-item-left">
                     <span class="promos-footage-item-icon">📹</span>
-                    <span class="promos-footage-item-name" title="${clip.filename}">${clip.filename}</span>
+                    <span class="promos-footage-item-name" title="${escapeHtml(clip.filename)}">${escapeHtml(clip.filename)}</span>
                     ${bdBadge}
                 </div>
                 <div style="display: flex; align-items: center; gap: 8px;">
@@ -9121,7 +9667,8 @@ async function generatePromosV2Script() {
                 game_name: gameName,
                 target_duration: targetDur,
                 tone: tone,
-                briefing_text: briefing
+                briefing_text: briefing,
+                ...promosHookFields(),
             })
         });
         const data = await res.json();
@@ -9171,7 +9718,9 @@ async function modifyPromosV2ScriptLength(action, customInstruction = '') {
                 action: action,
                 game_name: gameName,
                 target_duration: 30.0,
-                custom_instruction: customInstruction
+                custom_instruction: customInstruction,
+                // Keep the chosen opening (custom phrase / direct) when modifying.
+                ...promosHookFields(),
             })
         });
         const data = await res.json();
@@ -9328,7 +9877,7 @@ function updatePromosMockupDisplay() {
     const steamHookEl = document.getElementById('promosMockupSteamHook');
     const captionsEl = document.getElementById('promosMockupCaptions');
     const prevMode = state.promos.v2PreviewMode || 'steam_hook';
-    const isSteamHook = (state.promos.hookType === 'steam_new_game');
+    const isSteamHook = (promosEffectiveHookType() === 'steam_new_game');
 
     if (isSteamHook && prevMode === 'steam_hook') {
         if (steamHookEl) {
@@ -9522,7 +10071,7 @@ async function startPromoWizardRender() {
         mode: 'v2_voice_script',
         pipeline_version: 'v2',
         video_count: 1,
-        hook_type: state.promos.hookType || 'steam_new_game',
+        ...promosHookFields(),
         target_duration: 30.0,
         framing: 'vertical_split_blur',
         resolution: state.promos.resolution || '1080p',
@@ -9537,7 +10086,7 @@ async function startPromoWizardRender() {
         captions_y_position: parseInt(document.getElementById('promosCaptionsY')?.value ?? state.promos.captionsY ?? 450),
         gameplay_volume: (parseFloat(document.getElementById('promosGameplayVolume')?.value ?? state.promos.v2GameplayVolume ?? 15) / 100.0),
         elevenlabs_voice_id: (document.getElementById('cfgVoiceId')?.value || '').trim() || undefined,
-        elevenlabs_api_key: (document.getElementById('cfgElevenKey')?.value || '').trim() || undefined,
+        elevenlabs_api_key: typedApiKeyValue('cfgElevenKey') || undefined,
         steam_logo_scale: state.promos.steamLogoScale !== undefined ? state.promos.steamLogoScale : 1.0,
         steam_logo_y: state.promos.steamLogoY !== undefined ? state.promos.steamLogoY : 540,
         steam_text_scale: state.promos.steamTextScale !== undefined ? state.promos.steamTextScale : 1.0,
@@ -9596,6 +10145,7 @@ async function startPromoWizardRender() {
                     }
                     updatePromoPhaseBars(100, '¡Vídeo Renderizado con Éxito!', 'Generando previsualización final...');
                     handlePromoCompleted(msg);
+                    showRenderWarnings(msg.result);
                     return;
                 }
 
@@ -9758,7 +10308,7 @@ async function generatePromoSocialDescription() {
     const briefing = state.promos.v2BriefingText || document.getElementById('promosV2Briefing')?.value || '';
     const script = state.promos.v2ScriptText || document.getElementById('promosV2ScriptText')?.value || '';
     const hashtags = document.getElementById('promosSocialHashtagInput')?.value.trim() || '';
-    const hookType = state.promos.hookType || 'steam_new_game';
+    const hookFields = promosHookFields();
     const runId = state.promos.generatedVideos[0]?.run_id || 'latest';
 
     const btn = document.getElementById('btnPromosGenSocialDesc');
@@ -9775,7 +10325,7 @@ async function generatePromoSocialDescription() {
                 game_name: gameName,
                 briefing: briefing,
                 script_text: script,
-                hook_type: hookType,
+                ...hookFields,
                 hashtags: hashtags,
                 run_id: runId
             })
@@ -9863,7 +10413,7 @@ async function handlePromoApprovalAndDownload() {
                 date: dateStr,
                 account: 'IGD',
                 is_promo: true,
-                notes: `Promo Short V2 (${state.promos.hookType === 'steam_new_game' ? 'Steam Hook' : 'Dynamic Hook'})`
+                notes: `Promo Short V2 (${hookTypeLabel(state.promos.hookType)})`
             })
         });
 
@@ -9917,16 +10467,6 @@ const CAL_MONTH_NAMES_ES = [
     'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
     'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
 ];
-
-function escapeHtml(str) {
-    if (str == null) return '';
-    return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;');
-}
 
 /**
  * Normalizes any date string or Date object to "DD-MM-YY"
@@ -10256,7 +10796,7 @@ function renderCalendar() {
             const promoBadge = ev.is_promo ? `<span class="event-promo-dollar" title="Contenido Promocional ($)">$</span>` : '';
             const gameEscaped = escapeHtml(ev.game_name || 'Juego sin título');
             eventsHtml += `
-                <div class="calendar-event-card ${accClass}" data-event-id="${ev.id}" title="${gameEscaped} (${ev.account || 'IGD'}) • ${cellDmy}${ev.is_promo ? ' • Promo $' : ''}">
+                <div class="calendar-event-card ${accClass}" data-event-id="${escapeHtml(ev.id)}" title="${gameEscaped} (${escapeHtml(ev.account || 'IGD')}) • ${escapeHtml(cellDmy)}${ev.is_promo ? ' • Promo $' : ''}">
                     <div class="event-left-info">
                         <span class="event-account-dot"></span>
                         <span class="event-game-title">${gameEscaped}</span>
@@ -10373,14 +10913,14 @@ function renderUpcomingList() {
         const gameEscaped = escapeHtml(ev.game_name || 'Sin título');
 
         return `
-            <div class="upcoming-item-card" data-event-id="${ev.id}">
+            <div class="upcoming-item-card" data-event-id="${escapeHtml(ev.id)}">
                 <div class="upcoming-item-left">
                     <div class="upcoming-acc-indicator ${accClass}">
-                        ${acc}
+                        ${escapeHtml(acc)}
                     </div>
                     <div class="upcoming-meta-wrap">
                         <span class="upcoming-game-name">${gameEscaped}</span>
-                        <span class="upcoming-date-str">📅 ${dmyStr}</span>
+                        <span class="upcoming-date-str">📅 ${escapeHtml(dmyStr)}</span>
                     </div>
                 </div>
                 <div class="upcoming-item-right">
@@ -10647,6 +11187,10 @@ window.deleteCalendarEvent = deleteCalendarEvent;
 
 let promov3EventSource = null;
 let promov3TimerInterval = null;
+let promov3Step1PollStop = null;
+let promov3Step2PollStop = null;
+let promov3Step5EventSource = null;
+let promov3Step5PollStop = null;
 
 /* -------------------------------------------------------------------------
    Promo V3 Session & Step Persistence (Cache Recovery & Progress Saving)
@@ -10882,12 +11426,10 @@ function restorePromoV3Session(sessionData) {
         const gName = document.getElementById('promov3GameName');
         if (gName && s3.game_name) gName.value = s3.game_name;
 
-        state.promov3.hookType = s3.hook_type || 'steam_new_game';
-        const isSteam = (state.promov3.hookType === 'steam_new_game');
-        const hookCardSteam = document.getElementById('labelPromoV3HookSteam');
-        const hookCardDynamic = document.getElementById('labelPromoV3HookDynamic');
-        if (hookCardSteam) hookCardSteam.classList.toggle('active', isSteam);
-        if (hookCardDynamic) hookCardDynamic.classList.toggle('active', !isSteam);
+        state.promov3.openingText = s3.opening_text || '';
+        const openingInput = document.getElementById('promov3OpeningText');
+        if (openingInput) openingInput.value = state.promov3.openingText;
+        setPromoV3HookType(s3.hook_type || 'steam_new_game');
 
         const toneSel = document.getElementById('promov3ToneSelect');
         if (toneSel && s3.tone) toneSel.value = s3.tone;
@@ -10924,12 +11466,20 @@ function restorePromoV3Session(sessionData) {
             const stbValElem = document.getElementById('promov3VoiceStabilityVal');
 
             if (s3.speed !== undefined && spdSlider) {
-                spdSlider.value = s3.speed;
-                if (spdValElem) spdValElem.textContent = `${parseFloat(s3.speed).toFixed(2)}x`;
+                // ElevenLabs range is 0.70-1.20x: older sessions saved up to 1.40x, show what is really used.
+                const restoredSpeed = Math.min(1.2, Math.max(0.7, parseFloat(s3.speed) || 1.1));
+                spdSlider.value = restoredSpeed;
+                if (spdValElem) spdValElem.textContent = `${restoredSpeed.toFixed(2)}x`;
             }
             if (s3.stability !== undefined && stbSlider) {
                 stbSlider.value = s3.stability;
                 if (stbValElem) stbValElem.textContent = parseFloat(s3.stability).toFixed(2);
+            }
+            const simSlider = document.getElementById('promov3VoiceSimilaritySlider');
+            if (s3.similarity_boost !== undefined && s3.similarity_boost !== null && simSlider) {
+                simSlider.value = s3.similarity_boost;
+                const simValElem = document.getElementById('promov3VoiceSimilarityVal');
+                if (simValElem) simValElem.textContent = parseFloat(s3.similarity_boost).toFixed(2);
             }
 
             if (playerBox) playerBox.style.display = 'block';
@@ -10981,6 +11531,11 @@ function restorePromoV3Session(sessionData) {
     if (sessionData.has_step4 && sessionData.step4) {
         const s4 = sessionData.step4;
         state.promov3.step4Result = s4;
+        if (s4.cut_start_mode) {
+            state.promov3.cutStartMode = normalizeCutStartMode(s4.cut_start_mode);
+            const cutModeSel = document.getElementById('promov3CutStartMode');
+            if (cutModeSel) cutModeSel.value = state.promov3.cutStartMode;
+        }
         finishPromoV3Step4Success(s4, true);
     }
 
@@ -10988,6 +11543,11 @@ function restorePromoV3Session(sessionData) {
     if (sessionData.has_step5 && sessionData.step5) {
         const s5 = sessionData.step5;
         state.promov3.step5Result = s5;
+        const restoredRenderOptions = renderOptionsFromResult(s5);
+        if (restoredRenderOptions) {
+            applyRenderOptionsToState(state.promov3, restoredRenderOptions);
+            writeRenderOptionsToUi('promov3', restoredRenderOptions);
+        }
         finishPromoV3Step5Success(s5, true);
         if (typeof setupClassicPromoV3ApprovalUI === 'function') {
             setupClassicPromoV3ApprovalUI(s5, sessionData.approval);
@@ -11105,7 +11665,7 @@ async function savePromoV3Step3Progress(isDraft = true, silent = false) {
     const scriptEl = document.getElementById('promov3ScriptText');
     const scriptText = (scriptEl ? scriptEl.value : (state.promov3.scriptText || '')).trim();
     const gameName = (document.getElementById('promov3GameName') ? document.getElementById('promov3GameName').value : 'Gameplay').trim();
-    const hookType = state.promov3.hookType || 'steam_new_game';
+    const hookFields = promoV3HookFields();
     const tone = (document.getElementById('promov3ToneSelect') ? document.getElementById('promov3ToneSelect').value : 'viral_hype');
     const targetDur = parseFloat(document.getElementById('promov3TargetDuration') ? document.getElementById('promov3TargetDuration').value : 30.0) || 30.0;
     const briefing = (document.getElementById('promov3Briefing') ? document.getElementById('promov3Briefing').value : '').trim();
@@ -11119,7 +11679,7 @@ async function savePromoV3Step3Progress(isDraft = true, silent = false) {
         session_id: sessionId || null,
         video_path: videoPath || null,
         game_name: gameName,
-        hook_type: hookType,
+        ...hookFields,
         tone: tone,
         target_duration: targetDur,
         briefing_text: briefing,
@@ -11708,10 +12268,10 @@ function renderPromoV3SelectedVideos() {
             <div style="display: flex; align-items: center; justify-content: space-between; background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; padding: 6px 10px; font-size: 12px; gap: 8px;">
                 <div style="display: flex; align-items: center; gap: 8px; overflow: hidden; flex: 1;">
                     <span style="font-family: monospace; font-size: 11px; font-weight: 700; color: #818cf8; background: rgba(99, 102, 241, 0.2); padding: 1px 6px; border-radius: 4px;">#${i+1}</span>
-                    <span style="font-weight: 600; color: var(--text-primary); text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 170px;" title="${v.filename}">
-                        ${v.filename}
+                    <span style="font-weight: 600; color: var(--text-primary); text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 170px;" title="${escapeHtml(v.filename)}">
+                        ${escapeHtml(v.filename)}
                     </span>
-                    ${v.size_mb ? `<span style="font-size: 11px; color: var(--text-muted); font-family: monospace;">(${v.size_mb} MB)</span>` : ''}
+                    ${v.size_mb ? `<span style="font-size: 11px; color: var(--text-muted); font-family: monospace;">(${escapeHtml(v.size_mb)} MB)</span>` : ''}
                 </div>
                 <button type="button" onclick="removePromoV3Video(${i})" style="background: none; border: none; color: #f87171; cursor: pointer; font-size: 14px; padding: 0 4px; line-height: 1;" title="Quitar este clip">✕</button>
             </div>
@@ -11893,13 +12453,18 @@ async function runPromoV3Step1() {
         const jobId = data.job_id;
         state.promov3.currentJobId = jobId;
 
-        // Connect SSE Stream
+        // Connect SSE Stream (closing any previous stream or poller first)
         if (promov3EventSource) {
             promov3EventSource.close();
             promov3EventSource = null;
         }
+        if (promov3Step1PollStop) {
+            promov3Step1PollStop();
+            promov3Step1PollStop = null;
+        }
 
-        promov3EventSource = new EventSource(`/api/jobs/${jobId}/stream`);
+        const step1Source = new EventSource(`/api/jobs/${jobId}/stream`);
+        promov3EventSource = step1Source;
 
         promov3EventSource.onmessage = (event) => {
             try {
@@ -11952,6 +12517,14 @@ async function runPromoV3Step1() {
         promov3EventSource.onerror = (err) => {
             console.warn('SSE connection error:', err);
         };
+        guardJobEventSource(step1Source, () => {
+            if (promov3EventSource !== step1Source) return;
+            promov3EventSource = null;
+            promov3Step1PollStop = pollJobUntilDone(jobId, msg => {
+                if (msg.type === 'completed' || msg.type === 'error') promov3Step1PollStop = null;
+                step1Source.onmessage({ data: JSON.stringify(msg) });
+            });
+        });
 
     } catch (e) {
         state.promov3.isRunning = false;
@@ -12153,20 +12726,20 @@ function renderPromoV3ShotCards(shots, isVertical, detectorParams) {
         card.innerHTML = `
             <div class="v3-shot-header">
                 <div style="display: flex; align-items: center; gap: 8px;">
-                    <span style="font-family: monospace; font-size: 13px; font-weight: 700; color: #d97757; background: rgba(217, 119, 87, 0.18); padding: 2px 7px; border-radius: 4px;">Shot #${shot.shot_id}</span>
+                    <span style="font-family: monospace; font-size: 13px; font-weight: 700; color: #d97757; background: rgba(217, 119, 87, 0.18); padding: 2px 7px; border-radius: 4px;">Shot #${escapeHtml(shot.shot_id)}</span>
                     ${shot.video_name ? `
-                        <span class="badge-status" style="font-size: 10.5px; padding: 1px 6px; background: rgba(99, 102, 241, 0.15); color: #a5b4fc; border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 4px; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${shot.video_name}">
-                            📁 ${shot.video_name}
+                        <span class="badge-status" style="font-size: 10.5px; padding: 1px 6px; background: rgba(99, 102, 241, 0.15); color: #a5b4fc; border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 4px; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(shot.video_name)}">
+                            📁 ${escapeHtml(shot.video_name)}
                         </span>
                     ` : ''}
                 </div>
                 <div style="display: flex; align-items: center; gap: 6px;">
                     <span class="badge-status" style="font-family: monospace; font-size: 11px; padding: 2px 7px; background: rgba(255, 255, 255, 0.07); color: var(--text-primary); border-radius: 4px;">
-                        ⏱️ ${shot.start_timecode} → ${shot.end_timecode}
+                        ⏱️ ${escapeHtml(shot.start_timecode)} → ${escapeHtml(shot.end_timecode)}
                     </span>
                     ${shot.trim_frames ? `
-                        <span class="badge-status" style="font-size: 10px; padding: 1px 5px; background: rgba(167, 139, 250, 0.15); color: #c4b5fd; border: 1px solid rgba(167, 139, 250, 0.3); border-radius: 3px;" title="Corte de seguridad anti-leak: -${shot.trim_frames} frames al inicio y fin">
-                            ✂️ -${shot.trim_frames}f
+                        <span class="badge-status" style="font-size: 10px; padding: 1px 5px; background: rgba(167, 139, 250, 0.15); color: #c4b5fd; border: 1px solid rgba(167, 139, 250, 0.3); border-radius: 3px;" title="Corte de seguridad anti-leak: -${escapeHtml(shot.trim_frames)} frames al inicio y fin">
+                            ✂️ -${escapeHtml(shot.trim_frames)}f
                         </span>
                     ` : ''}
                 </div>
@@ -12174,7 +12747,7 @@ function renderPromoV3ShotCards(shots, isVertical, detectorParams) {
 
             <div class="v3-shot-video-wrap ${isVertical ? 'vertical-video' : ''}">
                 ${videoSrc ? `
-                    <video class="v3-shot-video" controls preload="metadata" playsinline ${autoLoop ? 'loop' : ''} src="${videoSrc}"></video>
+                    <video class="v3-shot-video" controls preload="metadata" playsinline ${autoLoop ? 'loop' : ''} src="${escapeHtml(videoSrc)}"></video>
                 ` : `
                     <div style="color: var(--text-muted); font-size: 12px; padding: 20px;">Clip no generado</div>
                 `}
@@ -12186,8 +12759,8 @@ function renderPromoV3ShotCards(shots, isVertical, detectorParams) {
                     <span style="font-size: 11px; color: var(--text-muted); font-family: monospace;">${shot.start.toFixed(2)}s - ${shot.end.toFixed(2)}s${shot.raw_start !== undefined && shot.trim_frames ? ` (raw: ${shot.raw_start.toFixed(2)}-${shot.raw_end.toFixed(2)})` : ''}</span>
                 </div>
                 <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--text-muted); border-top: 1px solid rgba(255, 255, 255, 0.05); padding-top: 5px;">
-                    <span>Método: ${detDesc}</span>
-                    <button type="button" class="btn btn-tag" onclick="replayPromoV3Shot(${shot.shot_id})" style="font-size: 11px; padding: 2px 6px;">
+                    <span>Método: ${escapeHtml(detDesc)}</span>
+                    <button type="button" class="btn btn-tag" onclick="replayPromoV3Shot(${Number(shot.shot_id) || 0})" style="font-size: 11px; padding: 2px 6px;">
                         🔄 Repetir
                     </button>
                 </div>
@@ -12572,12 +13145,18 @@ async function runPromoV3Step2() {
         const data = await res.json();
         const jobId = data.job_id;
 
-        // Connect SSE Stream for Step 2
+        // Connect SSE Stream for Step 2 (closing any previous stream or poller first)
         if (promov3Step2EventSource) {
             promov3Step2EventSource.close();
+            promov3Step2EventSource = null;
+        }
+        if (promov3Step2PollStop) {
+            promov3Step2PollStop();
+            promov3Step2PollStop = null;
         }
 
-        promov3Step2EventSource = new EventSource(`/api/jobs/${jobId}/stream`);
+        const step2Source = new EventSource(`/api/jobs/${jobId}/stream`);
+        promov3Step2EventSource = step2Source;
 
         promov3Step2EventSource.onmessage = (event) => {
             try {
@@ -12589,13 +13168,13 @@ async function runPromoV3Step2() {
                     if (progressTitle && msg.message) progressTitle.textContent = msg.message;
                     if (progressLog && msg.log) progressLog.textContent = msg.log;
                 } else if (msg.type === 'completed') {
-                    promov3Step2EventSource.close();
+                    if (promov3Step2EventSource) promov3Step2EventSource.close();
                     promov3Step2EventSource = null;
                     state.promov3.isStep2Running = false;
                     if (promov3Step2TimerInterval) clearInterval(promov3Step2TimerInterval);
                     finishPromoV3Step2Success(msg.result);
                 } else if (msg.type === 'error') {
-                    promov3Step2EventSource.close();
+                    if (promov3Step2EventSource) promov3Step2EventSource.close();
                     promov3Step2EventSource = null;
                     state.promov3.isStep2Running = false;
                     if (promov3Step2TimerInterval) clearInterval(promov3Step2TimerInterval);
@@ -12609,6 +13188,14 @@ async function runPromoV3Step2() {
         promov3Step2EventSource.onerror = (err) => {
             console.warn('SSE connection error in Step 2:', err);
         };
+        guardJobEventSource(step2Source, () => {
+            if (promov3Step2EventSource !== step2Source) return;
+            promov3Step2EventSource = null;
+            promov3Step2PollStop = pollJobUntilDone(jobId, msg => {
+                if (msg.type === 'completed' || msg.type === 'error') promov3Step2PollStop = null;
+                step2Source.onmessage({ data: JSON.stringify(msg) });
+            });
+        });
 
     } catch (e) {
         state.promov3.isStep2Running = false;
@@ -12721,39 +13308,39 @@ function renderPromoV3Step2Table(result) {
                     <div style="flex: 1;">
                         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px;">
                             <span style="font-size: 13.5px; font-weight: 700; color: #34d399;">
-                                ¡Optimización de Tiempo Exitosa! Suficiencia alcanzada tras Lote ${bNum} (${stats.clips_evaluated} clips acumulados)
+                                ¡Optimización de Tiempo Exitosa! Suficiencia alcanzada tras Lote ${escapeHtml(bNum)} (${escapeHtml(stats.clips_evaluated)} clips acumulados)
                             </span>
                             <span style="font-family: monospace; font-size: 11px; padding: 2px 8px; border-radius: 4px; background: rgba(52, 211, 153, 0.2); color: #34d399; font-weight: 700;">
-                                Ahorrados ${stats.batches_saved || 0} de ${stats.total_batches} lotes
+                                Ahorrados ${escapeHtml(stats.batches_saved || 0)} de ${escapeHtml(stats.total_batches)} lotes
                             </span>
                         </div>
                         <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px; line-height: 1.45;">
-                            ${v.verdict_reason || 'El Director IA ha determinado que este metraje acumulado contiene gancho visual, metraje útil y variedad suficiente para producir el vídeo sin gastar más tiempo.'}
+                            ${escapeHtml(v.verdict_reason || 'El Director IA ha determinado que este metraje acumulado contiene gancho visual, metraje útil y variedad suficiente para producir el vídeo sin gastar más tiempo.')}
                         </div>
                         <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; font-size: 11px;">
                             ${v.model_evaluator ? `
                                 <span style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); padding: 2px 7px; border-radius: 4px; font-weight: 600;">
-                                    🧠 Evaluador: ${v.model_evaluator}
+                                    🧠 Evaluador: ${escapeHtml(v.model_evaluator)}
                                 </span>
                             ` : ''}
                             ${v.hook_clip_id ? `
                                 <span style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 2px 7px; border-radius: 4px; font-weight: 600;">
-                                    🔥 Hook Recomendado: Clip #${v.hook_clip_id}
+                                    🔥 Hook Recomendado: Clip #${escapeHtml(v.hook_clip_id)}
                                 </span>
                             ` : ''}
                             ${v.variety_score ? `
                                 <span style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); padding: 2px 7px; border-radius: 4px; font-weight: 600;">
-                                    🎮 Variedad Mecánicas: ${v.variety_score}/100
+                                    🎮 Variedad Mecánicas: ${escapeHtml(v.variety_score)}/100
                                 </span>
                             ` : ''}
                             ${v.usable_duration_seconds ? `
                                 <span style="background: rgba(167, 139, 250, 0.15); color: #c4b5fd; border: 1px solid rgba(167, 139, 250, 0.3); padding: 2px 7px; border-radius: 4px; font-weight: 600;">
-                                    ⏱️ Metraje Útil: ${v.usable_duration_seconds}s
+                                    ⏱️ Metraje Útil: ${escapeHtml(v.usable_duration_seconds)}s
                                 </span>
                             ` : ''}
                             ${v.actions_detected && v.actions_detected.length ? `
                                 <span style="color: var(--text-muted); padding: 2px 0;">
-                                    Acciones: <em>${v.actions_detected.join(', ')}</em>
+                                    Acciones: <em>${escapeHtml(v.actions_detected.join(', '))}</em>
                                 </span>
                             ` : ''}
                         </div>
@@ -12848,10 +13435,10 @@ function renderPromoV3Step2Table(result) {
 
         tr.innerHTML = `
             <td>
-                <div style="font-family: monospace; font-size: 13px; font-weight: 700; color: #a78bfa;">Shot #${shot.shot_id}</div>
+                <div style="font-family: monospace; font-size: 13px; font-weight: 700; color: #a78bfa;">Shot #${escapeHtml(shot.shot_id)}</div>
                 ${shot.video_name ? `
-                    <div style="font-size: 10px; color: #a5b4fc; background: rgba(99, 102, 241, 0.15); border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 3px; padding: 1px 5px; margin-top: 3px; max-width: 125px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${shot.video_name}">
-                        📁 ${shot.video_name}
+                    <div style="font-size: 10px; color: #a5b4fc; background: rgba(99, 102, 241, 0.15); border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 3px; padding: 1px 5px; margin-top: 3px; max-width: 125px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(shot.video_name)}">
+                        📁 ${escapeHtml(shot.video_name)}
                     </div>
                 ` : ''}
                 <div style="font-size: 11px; color: var(--text-muted); font-family: monospace; margin-top: 2px;">
@@ -12862,19 +13449,19 @@ function renderPromoV3Step2Table(result) {
                 </div>
                 <div style="margin-top: 4px;">
                     <span style="font-size: 10px; padding: 2px 6px; border-radius: 4px; background: ${rConf.bg}; color: ${rConf.text}; font-weight: 600; display: inline-block;">
-                        ${rConf.label}
+                        ${escapeHtml(rConf.label)}
                     </span>
                 </div>
             </td>
             <td>
-                <div class="v3-mini-video-wrap" id="v3MiniWrap_${shot.shot_id}" onclick="togglePlayPromoV3Mini(this)">
-                    <video class="v3-mini-video" loop playsinline preload="metadata" src="${videoUrl}"></video>
+                <div class="v3-mini-video-wrap" id="v3MiniWrap_${escapeHtml(shot.shot_id)}" onclick="togglePlayPromoV3Mini(this)">
+                    <video class="v3-mini-video" loop playsinline preload="metadata" src="${escapeHtml(videoUrl)}"></video>
                     <div class="v3-mini-video-play-btn">▶</div>
                 </div>
             </td>
             <td>
                 <div style="font-size: 13px; font-weight: 500; color: var(--text-primary); line-height: 1.45;">
-                    ${shot.description || 'Sin descripción'}
+                    ${escapeHtml(shot.description || 'Sin descripción')}
                 </div>
                 ${isSplash ? `
                     <div style="font-size: 11px; color: #f87171; margin-top: 5px; display: flex; align-items: center; gap: 4px;">
@@ -12884,7 +13471,7 @@ function renderPromoV3Step2Table(result) {
                 ` : (shot.format_reason ? `
                     <div style="font-size: 11px; color: var(--text-muted); margin-top: 5px; display: flex; align-items: center; gap: 4px;">
                         <span>📱 Encuadre 9:16:</span>
-                        <span style="color: var(--text-secondary);">${shot.format_reason}</span>
+                        <span style="color: var(--text-secondary);">${escapeHtml(shot.format_reason)}</span>
                     </div>
                 ` : '')}
             </td>
@@ -12976,28 +13563,20 @@ function switchPromoV3Step2View(view) {
 // =============================================================================
 
 function initPromoV3Step3Listeners() {
-    // 1. Hook Cards Selection
-    const hookCardSteam = document.getElementById('labelPromoV3HookSteam');
-    const hookCardSoInThis = document.getElementById('labelPromoV3HookSoInThis');
-
-    if (hookCardSteam) {
-        hookCardSteam.addEventListener('click', () => {
-            state.promov3.hookType = 'steam_new_game';
-            hookCardSteam.classList.add('active');
-            if (hookCardSoInThis) hookCardSoInThis.classList.remove('active');
-            const radio = hookCardSteam.querySelector('input[type="radio"]');
-            if (radio) radio.checked = true;
+    // 1. Hook Cards Selection (Steam / So in this / Directo / Entrada propia)
+    Object.entries(PROMOV3_HOOK_CARD_IDS).forEach(([hookValue, cardId]) => {
+        const card = document.getElementById(cardId);
+        if (card) card.addEventListener('click', () => {
+            const changed = normalizeHookType(hookValue) !== state.promov3.hookType;
+            setPromoV3HookType(hookValue);
+            if (changed && (hookValue === 'direct' || hookValue === 'custom') && state.promov3.enableSteamHook !== false) {
+                showToast('El rótulo animado «NEW STEAM GAME» del Paso 5 sigue activo: desactívalo allí si no lo quieres en este vídeo.', 'info', 7000);
+            }
         });
-    }
-
-    if (hookCardSoInThis) {
-        hookCardSoInThis.addEventListener('click', () => {
-            state.promov3.hookType = 'so_in_this_new_game';
-            hookCardSoInThis.classList.add('active');
-            if (hookCardSteam) hookCardSteam.classList.remove('active');
-            const radio = hookCardSoInThis.querySelector('input[type="radio"]');
-            if (radio) radio.checked = true;
-        });
+    });
+    const promov3OpeningInput = document.getElementById('promov3OpeningText');
+    if (promov3OpeningInput) {
+        promov3OpeningInput.addEventListener('input', () => { state.promov3.openingText = promov3OpeningInput.value; });
     }
 
     // 2. Target Duration Slider
@@ -13146,6 +13725,14 @@ function initPromoV3Step3Listeners() {
         });
     }
 
+    const similaritySlider = document.getElementById('promov3VoiceSimilaritySlider');
+    const similarityValElem = document.getElementById('promov3VoiceSimilarityVal');
+    if (similaritySlider && similarityValElem) {
+        similaritySlider.addEventListener('input', (e) => {
+            similarityValElem.textContent = parseFloat(e.target.value).toFixed(2);
+        });
+    }
+
     // High-precision Sentence 1 Cut Slider listener (seeks audio in real-time)
     const cutSlider = document.getElementById('promov3Sentence1CutSlider');
     const cutValElem = document.getElementById('promov3Sentence1CutVal');
@@ -13205,6 +13792,9 @@ async function synthesizePromoV3Voice() {
     const stbEl = document.getElementById('promov3VoiceStabilitySlider');
     const speedVal = spdEl ? parseFloat(spdEl.value) : 1.10;
     const stabilityVal = stbEl ? parseFloat(stbEl.value) : 0.50;
+    const simEl = document.getElementById('promov3VoiceSimilaritySlider');
+    const similarityParsed = simEl ? parseFloat(simEl.value) : NaN;
+    const similarityVal = Number.isFinite(similarityParsed) ? similarityParsed : 0.75;
 
     const sessId = state.promov3.sessionId || localStorage.getItem('promov3_active_session_id') || '';
     const videoPath = (state.promov3.selectedVideo && state.promov3.selectedVideo.path) || localStorage.getItem('promov3_active_video_path') || null;
@@ -13226,6 +13816,7 @@ async function synthesizePromoV3Voice() {
                 script_text: scriptText,
                 speed: speedVal,
                 stability: stabilityVal,
+                similarity_boost: similarityVal,
             }),
         });
         const data = await parseJsonResponse(res);
@@ -13343,10 +13934,10 @@ function unlockPromoV3Step3(step2Result) {
     if (inputNotice) {
         let text = `📥 Conectado con <strong>${shots.length} clips evaluados</strong> del Paso 2. `;
         if (step2Result?.batch_stats?.early_stopped) {
-            text += `<span style="color: #34d399; font-weight: 600;">(⚡ Lote 1 Optimizado: ${step2Result.batch_stats.batches_saved} lotes ahorrados).</span> `;
+            text += `<span style="color: #34d399; font-weight: 600;">(⚡ Lote 1 Optimizado: ${escapeHtml(step2Result.batch_stats.batches_saved)} lotes ahorrados).</span> `;
         }
-        if (topViral) text += `Top Viral: <em>Shot #${topViral.shot_id} (${topViral.viral_score}/100)</em>. `;
-        if (topDesc) text += `Top Mecánica: <em>Shot #${topDesc.shot_id} (${topDesc.descriptive_score}/100)</em>.`;
+        if (topViral) text += `Top Viral: <em>Shot #${escapeHtml(topViral.shot_id)} (${escapeHtml(topViral.viral_score)}/100)</em>. `;
+        if (topDesc) text += `Top Mecánica: <em>Shot #${escapeHtml(topDesc.shot_id)} (${escapeHtml(topDesc.descriptive_score)}/100)</em>.`;
         inputNotice.innerHTML = text;
     }
     if (clipsNotice) {
@@ -13386,8 +13977,13 @@ async function generatePromoV3Script() {
     const targetDur = parseFloat(document.getElementById('promov3TargetDuration')?.value) || 30.0;
     const tone = document.getElementById('promov3ToneSelect')?.value || 'viral_hype';
     const briefing = document.getElementById('promov3Briefing')?.value.trim() || '';
-    const hookType = state.promov3.hookType || 'steam_new_game';
+    const hookFields = promoV3HookFields();
     const sessionId = state.promov3.step1Result ? state.promov3.step1Result.session_id : (state.promov3.step2Result?.session_id || null);
+    if (hookFields.hook_type === 'custom' && !hookFields.opening_text) {
+        showToast('Escribe la frase de «Entrada propia» o elige otra entrada antes de generar el guion.', 'warning');
+        document.getElementById('promov3OpeningText')?.focus?.();
+        return;
+    }
 
     const btn = document.getElementById('btnPromoV3GenScript');
     const btnText = document.getElementById('btnPromoV3GenScriptText');
@@ -13405,7 +14001,9 @@ async function generatePromoV3Script() {
                 game_name: gameName,
                 target_duration: targetDur,
                 tone: tone,
-                hook_type: hookType,
+                ...hookFields,
+                // Same speed the voice will use, so the word budget fits the duration.
+                speech_speed: promoV3VoiceSpeed(),
                 briefing_text: briefing,
                 session_id: sessionId,
             }),
@@ -13470,6 +14068,9 @@ async function modifyPromoV3Script(action, customInstruction = '') {
                 game_name: gameName,
                 target_duration: targetDur,
                 custom_instruction: customInstruction,
+                // Keep the chosen opening (custom phrase / direct) and the voice speed.
+                ...promoV3HookFields(),
+                speech_speed: promoV3VoiceSpeed(),
             }),
         });
 
@@ -13605,7 +14206,7 @@ async function confirmPromoV3Step3() {
     const s1EndVal = cutSliderEl ? parseFloat(cutSliderEl.value) : (state.promov3.sentence1EndS || null);
 
     const gameName = document.getElementById('promov3GameName')?.value.trim() || 'Gameplay';
-    const hookType = state.promov3.hookType || 'steam_new_game';
+    const hookFields = promoV3HookFields();
     const tone = document.getElementById('promov3ToneSelect')?.value || 'viral_hype';
     const targetDur = parseFloat(document.getElementById('promov3TargetDuration')?.value) || 30.0;
     const briefing = document.getElementById('promov3Briefing')?.value.trim() || '';
@@ -13619,7 +14220,7 @@ async function confirmPromoV3Step3() {
         session_id: sessionId,
         video_path: videoPath,
         game_name: gameName,
-        hook_type: hookType,
+        ...hookFields,
         tone: tone,
         target_duration: targetDur,
         briefing_text: briefing,
@@ -13733,6 +14334,8 @@ async function runPromoV3Step4(approvedShotIds = []) {
     const gameGenreInput = document.getElementById('promov3Step4GameGenre');
     const gameGenre = (gameGenreInput && gameGenreInput.value.trim()) || (state.promov3.step3Result && state.promov3.step3Result.tone) || '';
     const allowSecondary = document.getElementById('promov3AllowSecondaryTransition') ? document.getElementById('promov3AllowSecondaryTransition').checked : true;
+    const cutStartMode = normalizeCutStartMode(document.getElementById('promov3CutStartMode')?.value || state.promov3.cutStartMode);
+    state.promov3.cutStartMode = cutStartMode;
 
     const btn = document.getElementById('btnPromoV3RunStep4');
     const btnText = document.getElementById('btnPromoV3RunStep4Text');
@@ -13760,6 +14363,7 @@ async function runPromoV3Step4(approvedShotIds = []) {
                 game_name: gameName,
                 game_genre: gameGenre,
                 allow_secondary_transition: allowSecondary,
+                cut_start_mode: cutStartMode,
                 script_text: document.getElementById('promov3ScriptText')?.value.trim() || null,
                 sentence_1_end_s: parseFloat(document.getElementById('promov3Sentence1CutSlider')?.value) || state.promov3.sentence1EndS || null,
                 hook_duration: parseFloat(document.getElementById('promov3Sentence1CutSlider')?.value) || state.promov3.sentence1EndS || null,
@@ -13919,9 +14523,9 @@ function renderPromoV3Step4Timeline(edl) {
         card.innerHTML = `
             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; border-bottom: 1px solid rgba(255, 255, 255, 0.06); padding-bottom: 8px;">
                 <div style="display: flex; align-items: center; gap: 10px;">
-                    <span style="font-weight: 700; font-size: 13.5px; color: var(--text-primary); font-family: monospace;">#${cut.order || (idx + 1)}</span>
+                    <span style="font-weight: 700; font-size: 13.5px; color: var(--text-primary); font-family: monospace;">#${escapeHtml(cut.order || (idx + 1))}</span>
                     <span class="badge-status" style="font-size: 11px; padding: 2px 8px; background: ${roleBg}; color: ${roleBadgeColor}; border-radius: 4px; font-weight: 600;">
-                        ${roleLabel}
+                        ${escapeHtml(roleLabel)}
                     </span>
                     <span style="font-size: 12px; color: var(--text-muted); font-family: monospace;">
                         ⏱️ ${cut.start_time_in_video !== undefined ? cut.start_time_in_video.toFixed(3) : '0.000'}s ➔ ${cut.end_time_in_video !== undefined ? cut.end_time_in_video.toFixed(3) : '0.000'}s (${(cut.duration || 0).toFixed(3)}s)
@@ -13938,11 +14542,11 @@ function renderPromoV3Step4Timeline(edl) {
                 </div>
                 <div style="font-size: 11.5px; color: var(--text-muted); display: flex; align-items: center; gap: 8px;">
                     ${cut.video_name ? `
-                        <span class="badge-status" style="font-size: 10px; padding: 1px 6px; background: rgba(99, 102, 241, 0.15); color: #a5b4fc; border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 4px; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${cut.video_name}">
-                            📁 ${cut.video_name}
+                        <span class="badge-status" style="font-size: 10px; padding: 1px 6px; background: rgba(99, 102, 241, 0.15); color: #a5b4fc; border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 4px; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(cut.video_name)}">
+                            📁 ${escapeHtml(cut.video_name)}
                         </span>
                     ` : ''}
-                    <span>Plano: <strong>Shot #${cut.shot_id}</strong> (in: ${(cut.source_in !== undefined ? cut.source_in.toFixed(3) : '0.000')}s)</span>
+                    <span>Plano: <strong>Shot #${escapeHtml(cut.shot_id)}</strong> (in: ${(cut.source_in !== undefined ? cut.source_in.toFixed(3) : '0.000')}s)</span>
                 </div>
             </div>
 
@@ -13950,7 +14554,7 @@ function renderPromoV3Step4Timeline(edl) {
                 <!-- Left: 9:16 Video preview -->
                 <div style="width: 100px; height: 160px; background: #000; border-radius: 8px; overflow: hidden; position: relative; border: 1px solid rgba(255, 255, 255, 0.1);">
                     ${videoUrl ? `
-                        <video src="${videoUrl}" muted loop playsinline controls style="width: 100%; height: 100%; object-fit: cover; display: block;" onmouseenter="this.play()" onmouseleave="this.pause()"></video>
+                        <video src="${escapeHtml(videoUrl)}" muted loop playsinline controls style="width: 100%; height: 100%; object-fit: cover; display: block;" onmouseenter="this.play()" onmouseleave="this.pause()"></video>
                     ` : `
                         <div style="display: flex; align-items: center; justify-content: center; height: 100%; font-size: 10px; color: var(--text-muted); text-align: center; padding: 4px;">
                             Sin preview 9:16
@@ -14440,7 +15044,7 @@ async function checkAndDisplayPromoV3LogoStatus(isWizard = false) {
             if (noticeEl) {
                 noticeEl.innerHTML = `
                     <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 6px; padding: 6px 10px; color: #fca5a5; font-size: 11px; line-height: 1.45;">
-                        ⚠️ <strong>Steam no tiene un logo transparente para este juego:</strong> ${data.message || 'La API de Steam devolvió 404 para logo.png.'}<br>
+                        ⚠️ <strong>Steam no tiene un logo transparente para este juego:</strong> ${escapeHtml(data.message || 'La API de Steam devolvió 404 para logo.png.')}<br>
                         Por favor, <strong>sube el logo en PNG transparente</strong> usando el botón de abajo.
                     </div>
                 `;
@@ -14530,6 +15134,8 @@ async function runPromoV3Step5() {
     const capY = state.promov3.captionsY !== undefined ? state.promov3.captionsY : 600;
     const capColor = state.promov3.captionsHighlightColor || '#FFF380';
     const gameVol = state.promov3.gameplayVolume !== undefined ? (state.promov3.gameplayVolume / 100.0) : 0.15;
+    const renderOptions = readRenderOptionsFromUi('promov3', renderOptionsFromState(state.promov3));
+    applyRenderOptionsToState(state.promov3, renderOptions);
 
     const btn = document.getElementById('btnPromoV3RunStep5');
     const btnText = document.getElementById('btnPromoV3RunStep5Text');
@@ -14566,13 +15172,7 @@ async function runPromoV3Step5() {
         edlPayload.sentence_1_end_s = s1End;
         edlPayload.hook_duration = s1End;
         if (state.promov3.sfxTracks && state.promov3.sfxTracks.length) {
-            edlPayload.sfx_tracks = state.promov3.sfxTracks.map(t => ({
-                name: t.name,
-                file: t.relative_path || t.filename || t.name,
-                relative_path: t.relative_path || t.filename,
-                start_s: t.start_s,
-                volume: t.volume,
-            }));
+            edlPayload.sfx_tracks = sfxTracksRequestPayload(state.promov3.sfxTracks, enableSteam);
         }
 
         const postRes = await fetch('/api/promov3/step5/render', {
@@ -14602,6 +15202,9 @@ async function runPromoV3Step5() {
                 game_name_reveal_y: state.promov3.gameNameRevealY !== undefined ? state.promov3.gameNameRevealY : 800,
                 game_name_reveal_scale: state.promov3.gameNameRevealScale !== undefined ? state.promov3.gameNameRevealScale : 1.0,
                 custom_game_logo_path: state.promov3.customGameLogoPath || null,
+                audio_normalize: renderOptions.audio_normalize,
+                audio_ducking: renderOptions.audio_ducking,
+                output_fps: renderOptions.output_fps,
                 edl: edlPayload,
                 script_text: (document.getElementById('promov3ScriptText')?.value || state.promov3.scriptText || '').trim(),
             }),
@@ -14614,8 +15217,17 @@ async function runPromoV3Step5() {
 
         const jobId = postData.job_id;
 
-        // Connect to SSE Stream
+        // Connect to SSE Stream (closing any previous stream or poller first)
+        if (promov3Step5EventSource) {
+            promov3Step5EventSource.close();
+            promov3Step5EventSource = null;
+        }
+        if (promov3Step5PollStop) {
+            promov3Step5PollStop();
+            promov3Step5PollStop = null;
+        }
         const evtSource = new EventSource(`/api/jobs/${jobId}/stream`);
+        promov3Step5EventSource = evtSource;
 
         evtSource.onmessage = (event) => {
             try {
@@ -14628,6 +15240,7 @@ async function runPromoV3Step5() {
                     if (progressTitle && msg.phase) progressTitle.textContent = msg.phase;
                 } else if (msg.type === 'completed') {
                     evtSource.close();
+                    if (promov3Step5EventSource === evtSource) promov3Step5EventSource = null;
                     if (progressBar) progressBar.style.width = '100%';
                     if (progressPct) progressPct.textContent = '100%';
                     if (progressLog) progressLog.textContent = '¡Pre-renderizado completado con éxito!';
@@ -14639,6 +15252,7 @@ async function runPromoV3Step5() {
                     if (btnText) btnText.innerHTML = origHtml;
                 } else if (msg.type === 'error') {
                     evtSource.close();
+                    if (promov3Step5EventSource === evtSource) promov3Step5EventSource = null;
                     state.promov3.isStep5Running = false;
                     if (btn) btn.disabled = false;
                     if (btnText) btnText.innerHTML = origHtml;
@@ -14657,16 +15271,17 @@ async function runPromoV3Step5() {
             }
         };
 
-        evtSource.onerror = (err) => {
-            evtSource.close();
-            state.promov3.isStep5Running = false;
-            if (btn) btn.disabled = false;
-            if (btnText) btnText.innerHTML = origHtml;
-            if (progressTitle) progressTitle.textContent = '❌ Desconexión de render';
-            if (progressLog) progressLog.textContent = 'Se perdió la conexión con el proceso de pre-renderizado.';
-            if (progressBar) progressBar.style.background = '#ef4444';
-            showToast('Error en la conexión de progreso del pre-render', 'error');
-        };
+        // A dropped progress stream does not mean the render failed: close the
+        // stream and keep following the job by polling /api/jobs/{id}.
+        guardJobEventSource(evtSource, () => {
+            if (promov3Step5EventSource !== evtSource) return;
+            promov3Step5EventSource = null;
+            if (progressLog) progressLog.textContent = 'Conexión de progreso perdida; consultando el estado del render...';
+            promov3Step5PollStop = pollJobUntilDone(jobId, msg => {
+                if (msg.type === 'completed' || msg.type === 'error') promov3Step5PollStop = null;
+                evtSource.onmessage({ data: JSON.stringify(msg) });
+            });
+        }, 1);
 
     } catch (e) {
         state.promov3.isStep5Running = false;
@@ -14759,10 +15374,10 @@ function finishPromoV3Step5Success(result, isRestored = false) {
     const badgesContainer = document.getElementById('promov3DeliveryBadges');
     if (badgesContainer) {
         const badgesHtml = [];
-        badgesHtml.push(`<span class="badge-status" style="font-size:11.5px; background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.3); border-radius:4px; padding:3px 9px;">📺 ${escapeHtml(result.resolution || '1080p')} (${result.width}×${result.height})</span>`);
+        badgesHtml.push(`<span class="badge-status" style="font-size:11.5px; background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.3); border-radius:4px; padding:3px 9px;">📺 ${escapeHtml(result.resolution || '1080p')} (${escapeHtml(result.width)}×${escapeHtml(result.height)})</span>`);
         badgesHtml.push(`<span class="badge-status" style="font-size:11.5px; background:rgba(52,211,153,0.15); color:#34d399; border:1px solid rgba(52,211,153,0.3); border-radius:4px; padding:3px 9px;">⏱️ Duración: ${(result.duration || 0).toFixed(1)}s</span>`);
-        badgesHtml.push(`<span class="badge-status" style="font-size:11.5px; background:rgba(167,139,250,0.15); color:#a78bfa; border:1px solid rgba(167,139,250,0.3); border-radius:4px; padding:3px 9px;">✂️ ${result.cut_count || 0} cortes</span>`);
-        badgesHtml.push(`<span class="badge-status" style="font-size:11.5px; background:rgba(245,158,11,0.15); color:#fbbf24; border:1px solid rgba(245,158,11,0.3); border-radius:4px; padding:3px 9px;">💾 ${result.file_size_mb || 0} MB</span>`);
+        badgesHtml.push(`<span class="badge-status" style="font-size:11.5px; background:rgba(167,139,250,0.15); color:#a78bfa; border:1px solid rgba(167,139,250,0.3); border-radius:4px; padding:3px 9px;">✂️ ${escapeHtml(result.cut_count || 0)} cortes</span>`);
+        badgesHtml.push(`<span class="badge-status" style="font-size:11.5px; background:rgba(245,158,11,0.15); color:#fbbf24; border:1px solid rgba(245,158,11,0.3); border-radius:4px; padding:3px 9px;">💾 ${escapeHtml(result.file_size_mb || 0)} MB</span>`);
         
         if (result.has_steam_hook) {
             badgesHtml.push(`<span class="badge-status" style="font-size:11.5px; background:rgba(59,130,246,0.15); color:#60a5fa; border:1px solid rgba(59,130,246,0.3); border-radius:4px; padding:3px 9px;">🎮 Steam Hook 0-2s</span>`);
@@ -14770,16 +15385,22 @@ function finishPromoV3Step5Success(result, isRestored = false) {
         if (result.has_subtitles) {
             badgesHtml.push(`<span class="badge-status" style="font-size:11.5px; background:rgba(236,72,153,0.15); color:#f472b6; border:1px solid rgba(236,72,153,0.3); border-radius:4px; padding:3px 9px;">💬 Kinetic Subtitles</span>`);
         }
-        badgesHtml.push(`<span class="badge-status" style="font-size:11.5px; background:rgba(255,255,255,0.06); color:var(--text-muted); border-radius:4px; padding:3px 9px;">🔊 Ducking: ${result.gameplay_volume || 15}%</span>`);
+        badgesHtml.push(`<span class="badge-status" style="font-size:11.5px; background:rgba(255,255,255,0.06); color:var(--text-muted); border-radius:4px; padding:3px 9px;">🔊 Ducking: ${escapeHtml(result.gameplay_volume || 15)}%</span>`);
 
         if (result.transitions_applied && result.transitions_applied.length > 0) {
             result.transitions_applied.forEach(t => {
-                badgesHtml.push(`<span class="badge-status" style="font-size:11.5px; background:rgba(245,158,11,0.15); color:#fbbf24; border:1px solid rgba(245,158,11,0.3); border-radius:4px; padding:3px 9px;">✨ ${escapeHtml(t.name)} (${t.duration}s) en corte #${t.cut_index}</span>`);
+                badgesHtml.push(`<span class="badge-status" style="font-size:11.5px; background:rgba(245,158,11,0.15); color:#fbbf24; border:1px solid rgba(245,158,11,0.3); border-radius:4px; padding:3px 9px;">✨ ${escapeHtml(t.name)} (${escapeHtml(t.duration)}s) en corte #${escapeHtml(t.cut_index)}</span>`);
             });
         }
 
+        if (result.output_fps) {
+            badgesHtml.push(`<span class="badge-status" style="font-size:11.5px; background:rgba(255,255,255,0.06); color:var(--text-muted); border-radius:4px; padding:3px 9px;">🎞️ ${escapeHtml(result.output_fps)} fps</span>`);
+        }
         badgesContainer.innerHTML = badgesHtml.join('');
     }
+
+    // Non-blocking render warnings (captions not burned, fps fallback, ...).
+    showRenderWarnings(result, 'promov3RenderWarnings', { toast: !isRestored });
 
     // Update Stepper indicator 5 checkmark
     const stepperIndicators = document.querySelectorAll('.v3-step-indicator');
@@ -14798,6 +15419,14 @@ function finishPromoV3Step5Success(result, isRestored = false) {
 }
 
 function initPromoV3Step5Listeners() {
+    // Audio master / output options (normalize, ducking, fps)
+    bindRenderOptionControls('promov3', state.promov3);
+    const cutModeSelect = document.getElementById('promov3CutStartMode');
+    if (cutModeSelect) {
+        cutModeSelect.value = normalizeCutStartMode(state.promov3.cutStartMode);
+        cutModeSelect.addEventListener('change', () => { state.promov3.cutStartMode = normalizeCutStartMode(cutModeSelect.value); });
+    }
+
     // Resolution Pills (1080p vs 4K)
     const pills = document.querySelectorAll('#promov3ResolutionPills .pill');
     pills.forEach(pill => {
@@ -15213,12 +15842,12 @@ function initPromoV3Step5Listeners() {
         grid.innerHTML = lib.map(item => `
             <div class="sfx-card-item" style="padding: 8px; background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; display: flex; flex-direction: column; gap: 4px;">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <span style="font-size: 11px; font-weight: 700; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 85px;" title="${item.title}">${item.title}</span>
-                    <span style="font-size: 9.5px; font-family: monospace; color: #a78bfa;">${item.duration}s</span>
+                    <span style="font-size: 11px; font-weight: 700; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 85px;" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</span>
+                    <span style="font-size: 9.5px; font-family: monospace; color: #a78bfa;">${escapeHtml(item.duration)}s</span>
                 </div>
                 <div style="display: flex; gap: 4px; margin-top: 2px;">
-                    <button type="button" class="btn btn-sm btn-tag btn-solo-sfx" data-url="${item.url}" style="font-size: 9.5px; padding: 1px 5px; background: rgba(59, 130, 246, 0.2); color: #60a5fa; flex: 1;">▶ Solo</button>
-                    <button type="button" class="btn btn-sm btn-tag btn-add-sfx" data-id="${item.id}" style="font-size: 9.5px; padding: 1px 5px; background: rgba(16, 185, 129, 0.2); color: #34d399; flex: 1;">➕ Añadir</button>
+                    <button type="button" class="btn btn-sm btn-tag btn-solo-sfx" data-url="${escapeHtml(item.url)}" style="font-size: 9.5px; padding: 1px 5px; background: rgba(59, 130, 246, 0.2); color: #60a5fa; flex: 1;">▶ Solo</button>
+                    <button type="button" class="btn btn-sm btn-tag btn-add-sfx" data-id="${escapeHtml(item.id)}" style="font-size: 9.5px; padding: 1px 5px; background: rgba(16, 185, 129, 0.2); color: #34d399; flex: 1;">➕ Añadir</button>
                 </div>
             </div>
         `).join('');
@@ -15300,9 +15929,9 @@ function initPromoV3Step5Listeners() {
 
             return `
                 <div style="display: flex; align-items: center; gap: 8px;">
-                    <span style="font-size: 10px; width: 75px; font-weight: 600; color: ${trk.color}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${trk.title}">${trk.title}:</span>
+                    <span style="font-size: 10px; width: 75px; font-weight: 600; color: ${escapeHtml(trk.color)}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(trk.title)}">${escapeHtml(trk.title)}:</span>
                     <div style="flex: 1; height: 14px; background: rgba(0,0,0,0.3); border-radius: 4px; position: relative; overflow: hidden;">
-                        <div style="position: absolute; left: ${leftPct}%; width: ${widthPct}%; top: 0; bottom: 0; background: ${trk.color}; border-radius: 3px; opacity: 0.85; transition: left 0.1s ease, width 0.1s ease;"></div>
+                        <div style="position: absolute; left: ${leftPct}%; width: ${widthPct}%; top: 0; bottom: 0; background: ${escapeHtml(trk.color)}; border-radius: 3px; opacity: 0.85; transition: left 0.1s ease, width 0.1s ease;"></div>
                         ${impactMarker}
                     </div>
                 </div>
@@ -15320,25 +15949,25 @@ function initPromoV3Step5Listeners() {
             const peakOff = trk.peak_offset !== undefined ? trk.peak_offset : ((trk.name && trk.name.toLowerCase().includes('raiser2')) ? 1.24 : 0.0);
             const impactText = peakOff > 0 ? ` ⚡ Impacto: ${(trk.start_s + peakOff).toFixed(2)}s` : '';
             return `
-            <div class="sfx-track-card" style="padding: 10px 12px; background: rgba(0, 0, 0, 0.35); border: 1px solid ${trk.color}44; border-radius: 8px;">
+            <div class="sfx-track-card" style="padding: 10px 12px; background: rgba(0, 0, 0, 0.35); border: 1px solid ${escapeHtml(trk.color)}44; border-radius: 8px;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                     <div style="display: flex; align-items: center; gap: 6px;">
-                        <span style="width: 10px; height: 10px; border-radius: 50%; background: ${trk.color}; display: inline-block;"></span>
-                        <label style="font-weight: 700; font-size: 12px; color: ${trk.color}; margin: 0;">${trk.title}</label>
+                        <span style="width: 10px; height: 10px; border-radius: 50%; background: ${escapeHtml(trk.color)}; display: inline-block;"></span>
+                        <label style="font-weight: 700; font-size: 12px; color: ${escapeHtml(trk.color)}; margin: 0;">${escapeHtml(trk.title)}</label>
                     </div>
                     <div style="display: flex; align-items: center; gap: 8px;">
-                        <span style="font-size: 11px; font-family: monospace; color: ${trk.color};" id="lbl_sfx_val_${trk.id}">Inicio: ${trk.start_s.toFixed(2)}s${impactText} | Vol: ${Math.round(trk.volume * 100)}%</span>
-                        <button type="button" class="btn btn-sm btn-remove-trk" data-id="${trk.id}" style="font-size: 10px; padding: 1px 6px; background: rgba(239, 68, 68, 0.2); color: #f87171; border: none; border-radius: 4px;">❌</button>
+                        <span style="font-size: 11px; font-family: monospace; color: ${escapeHtml(trk.color)};" id="lbl_sfx_val_${escapeHtml(trk.id)}">Inicio: ${trk.start_s.toFixed(2)}s${impactText} | Vol: ${Math.round(trk.volume * 100)}%</span>
+                        <button type="button" class="btn btn-sm btn-remove-trk" data-id="${escapeHtml(trk.id)}" style="font-size: 10px; padding: 1px 6px; background: rgba(239, 68, 68, 0.2); color: #f87171; border: none; border-radius: 4px;">❌</button>
                     </div>
                 </div>
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
                     <div>
                         <span style="font-size: 10.5px; color: var(--text-muted); display: block; margin-bottom: 2px;">Segundo de Inicio (start_s):</span>
-                        <input type="range" class="form-range inp-sfx-start" data-id="${trk.id}" min="0" max="25" step="0.05" value="${trk.start_s}">
+                        <input type="range" class="form-range inp-sfx-start" data-id="${escapeHtml(trk.id)}" min="0" max="25" step="0.05" value="${escapeHtml(trk.start_s)}">
                     </div>
                     <div>
                         <span style="font-size: 10.5px; color: var(--text-muted); display: block; margin-bottom: 2px;">Volumen (0% - 100%):</span>
-                        <input type="range" class="form-range inp-sfx-vol" data-id="${trk.id}" min="0" max="100" step="5" value="${Math.round(trk.volume * 100)}">
+                        <input type="range" class="form-range inp-sfx-vol" data-id="${escapeHtml(trk.id)}" min="0" max="100" step="5" value="${Math.round(trk.volume * 100)}">
                     </div>
                 </div>
             </div>
@@ -15410,9 +16039,9 @@ function initPromoV3Step5Listeners() {
 
             return `
                 <div style="display: flex; align-items: center; gap: 8px;">
-                    <span style="font-size: 10px; width: 75px; font-weight: 600; color: ${trk.color}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${trk.title}">${trk.title}:</span>
+                    <span style="font-size: 10px; width: 75px; font-weight: 600; color: ${escapeHtml(trk.color)}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(trk.title)}">${escapeHtml(trk.title)}:</span>
                     <div style="flex: 1; height: 14px; background: rgba(0,0,0,0.3); border-radius: 4px; position: relative; overflow: hidden;">
-                        <div style="position: absolute; left: ${leftPct}%; width: ${widthPct}%; top: 0; bottom: 0; background: ${trk.color}; border-radius: 3px; opacity: 0.85; transition: left 0.1s ease, width 0.1s ease;"></div>
+                        <div style="position: absolute; left: ${leftPct}%; width: ${widthPct}%; top: 0; bottom: 0; background: ${escapeHtml(trk.color)}; border-radius: 3px; opacity: 0.85; transition: left 0.1s ease, width 0.1s ease;"></div>
                         ${impactMarker}
                     </div>
                 </div>
@@ -15438,7 +16067,10 @@ function initPromoV3Step5Listeners() {
         });
     }
 
-    const btnRemix = document.getElementById('btnPromoV3RemixSfx');
+    // Two buttons share the same remix action: the SFX editor one and the one in
+    // the delivery panel (each with its own id).
+    ['btnPromoV3RemixSfx', 'btnPromoV3RemixSfxDelivery'].forEach(remixButtonId => {
+    const btnRemix = document.getElementById(remixButtonId);
     if (btnRemix) {
         btnRemix.addEventListener('click', async () => {
             const sessId = state.promov3.step5Result?.session_id || state.promov3.sessionId;
@@ -15447,13 +16079,10 @@ function initPromoV3Step5Listeners() {
                 return;
             }
 
-            const payloadTracks = (state.promov3.sfxTracks || []).map(t => ({
-                name: t.name,
-                file: t.relative_path || t.filename || t.name,
-                relative_path: t.relative_path || t.filename,
-                start_s: t.start_s,
-                volume: t.volume,
-            }));
+            const remixHasSplash = state.promov3.step5Result && typeof state.promov3.step5Result.has_steam_hook === 'boolean'
+                ? state.promov3.step5Result.has_steam_hook
+                : (state.promov3.enableSteamHook !== false && state.promov3.steamHookMode !== 'none');
+            const payloadTracks = sfxTracksRequestPayload(state.promov3.sfxTracks, remixHasSplash);
 
             const gVol = state.promov3.gameplayVolume !== undefined ? (state.promov3.gameplayVolume / 100.0) : 0.15;
 
@@ -15468,6 +16097,9 @@ function initPromoV3Step5Listeners() {
                         session_id: sessId,
                         gameplay_volume: gVol,
                         sfx_tracks: payloadTracks,
+                        // Same audio options as the render (ignored by servers that do not support them).
+                        audio_normalize: state.promov3.audioNormalize !== false,
+                        audio_ducking: state.promov3.audioDucking !== false,
                     })
                 });
 
@@ -15487,6 +16119,7 @@ function initPromoV3Step5Listeners() {
             }
         });
     }
+    });
 
     // Web Audio API Real-time Multi-Track Pre-listener (0s latency, no render needed)
     let sfxAudioCtx = null;
@@ -15633,7 +16266,7 @@ function initPromoV3Step5Listeners() {
     if (btnOpenFolder) {
         btnOpenFolder.addEventListener('click', async () => {
             try {
-                const res = await fetch('/api/open_folder?folder=output', { method: 'POST' });
+                const res = await fetch('/api/v1/open-output-folder', { method: 'POST' });
                 const d = await res.json();
                 if (d.status === 'ok') {
                     showToast('Carpeta de exportación abierta.', 'info');
@@ -15687,6 +16320,12 @@ const wizState = {
     gameNameRevealScale: 1.0,
     channelBranding: {enabled: false, preset: 'NextLoot', text: '@nextlootgames', size: 64, x: 60, y: 240, opacity: 80},
     gameplayVolume: 15,
+    audioNormalize: true,
+    audioDucking: true,
+    outputFps: 30,
+    cutStartMode: 'shot_start',
+    hookType: 'steam_new_game',
+    openingText: '',
     sfxTracks: null,
     sfxLibrary: [],
     selectedMode: 'complete_video',
@@ -15928,13 +16567,32 @@ function initWizardTab() {
     const btnRender = document.getElementById('wizardBtnRender');
     if (btnRender) btnRender.addEventListener('click', wizardRenderFinal);
 
+    // --- Optional production options (opening, cut start, audio/fps) ---
+    bindRenderOptionControls('wizard', wizState);
+    const wizHookSelect = document.getElementById('wizardHookType');
+    if (wizHookSelect) {
+        wizHookSelect.addEventListener('change', () => {
+            wizState.hookType = wizHookSelect.value;
+            wizardSyncHookControls();
+        });
+    }
+    const wizOpeningInput = document.getElementById('wizardOpeningText');
+    if (wizOpeningInput) {
+        wizOpeningInput.addEventListener('input', () => { wizState.openingText = wizOpeningInput.value; });
+    }
+    const wizCutMode = document.getElementById('wizardCutStartMode');
+    if (wizCutMode) {
+        wizCutMode.addEventListener('change', () => { wizState.cutStartMode = wizCutMode.value === 'best_moment' ? 'best_moment' : 'shot_start'; });
+    }
+
     // --- Open Folder ---
     const btnOpenFolder = document.getElementById('wizardBtnOpenFolder');
     if (btnOpenFolder) {
         btnOpenFolder.addEventListener('click', async () => {
             try {
-                await fetch('/api/open_folder?folder=output', { method: 'POST' });
-                showToast('Carpeta de exportación abierta.', 'info');
+                const res = await fetch('/api/v1/open-output-folder', { method: 'POST' });
+                const d = await res.json().catch(() => ({}));
+                showToast(d.status === 'ok' ? 'Carpeta de exportación abierta.' : 'Los vídeos se encuentran en: output/', 'info');
             } catch { showToast('Los vídeos se encuentran en: output/', 'info'); }
         });
     }
@@ -16148,9 +16806,9 @@ async function wizardOpenLoadGameModal() {
                             </span>
                         </div>
                         <div class="wizard-game-meta">
-                            <span>🎬 ${g.video_count} vídeo${g.video_count !== 1 ? 's' : ''}</span>
-                            <span>📦 ${g.total_size_mb} MB</span>
-                            ${g.shot_count ? `<span>✂️ ${g.shot_count} planos</span>` : ''}
+                            <span>🎬 ${escapeHtml(g.video_count)} vídeo${g.video_count !== 1 ? 's' : ''}</span>
+                            <span>📦 ${escapeHtml(g.total_size_mb)} MB</span>
+                            ${g.shot_count ? `<span>✂️ ${escapeHtml(g.shot_count)} planos</span>` : ''}
                         </div>
                     </div>
                 `).join('')}
@@ -16212,6 +16870,20 @@ async function wizardSelectGame(idx) {
             if (data.step1) wizState.step1Result = data.step1;
             if (data.step2) wizState.step2Result = data.step2;
 
+            const restoredHook = data.step3?.hook_type;
+            if (['steam_new_game', 'so_in_this_new_game', 'direct', 'custom'].includes(restoredHook)) {
+                wizState.hookType = restoredHook;
+                wizState.openingText = data.step3?.opening_text || '';
+                const hookSel = document.getElementById('wizardHookType');
+                if (hookSel) hookSel.value = restoredHook;
+                const openingEl = document.getElementById('wizardOpeningText');
+                if (openingEl) openingEl.value = wizState.openingText;
+            }
+            if (data.step4?.cut_start_mode || data.step4?.edl?.cut_start_mode) {
+                wizState.cutStartMode = normalizeCutStartMode(data.step4.cut_start_mode || data.step4.edl.cut_start_mode);
+                const cutSel = document.getElementById('wizardCutStartMode');
+                if (cutSel) cutSel.value = wizState.cutStartMode;
+            }
             wizardSetScriptMode(data.step3?.script_mode || 'normal');
             wizState.gameGenre = data.step3?.game_genre || '';
             const genreInput = document.getElementById('wizardGameGenre');
@@ -16243,6 +16915,12 @@ async function wizardSelectGame(idx) {
 
             if (data.has_step5 && data.step5) {
                 wizState.step5Result = data.step5;
+                const restoredWizOptions = renderOptionsFromResult(data.step5);
+                if (restoredWizOptions) {
+                    applyRenderOptionsToState(wizState, restoredWizOptions);
+                    writeRenderOptionsToUi('wizard', restoredWizOptions);
+                }
+                showRenderWarnings(data.step5, 'wizardRenderWarnings', { toast: false });
                 const resEl = document.getElementById('wizardPhaseRenderResult');
                 if (resEl) resEl.style.display = 'block';
                 const infoEl = document.getElementById('wizardRenderResultInfo');
@@ -16420,7 +17098,7 @@ function wizardRenderFilesList() {
     listEl.style.display = 'flex';
     listEl.innerHTML = wizState.selectedFiles.map((f, i) => `
         <div class="wizard-file-chip">
-            <span>🎬 ${f.filename} ${f.size_mb ? `(${f.size_mb} MB)` : ''}</span>
+            <span>🎬 ${escapeHtml(f.filename)} ${f.size_mb ? `(${escapeHtml(f.size_mb)} MB)` : ''}</span>
             <button class="remove-btn" onclick="wizardRemoveFile(${i})">✕</button>
         </div>
     `).join('');
@@ -16706,7 +17384,37 @@ function wizardSetScriptMode(mode) {
     if (label) label.textContent = wizState.scriptMode === 'caveman' ? 'Caveman' : 'Normal';
     const genreGroup = document.getElementById('wizardCavemanGenreGroup');
     if (genreGroup) genreGroup.style.display = wizState.scriptMode === 'caveman' ? '' : 'none';
+    wizardSyncHookControls();
 }
+
+// Opening of a normal script: Steam (default) / So in this / direct / custom.
+// Caveman scripts keep their own hook ("caveman").
+function wizardHookRequestFields() {
+    if ((wizState.scriptMode || 'normal') === 'caveman') return { hook_type: 'caveman', opening_text: '' };
+    const select = document.getElementById('wizardHookType');
+    const raw = (select && select.value) || wizState.hookType || 'steam_new_game';
+    const hookType = ['steam_new_game', 'so_in_this_new_game', 'direct', 'custom'].includes(raw) ? raw : 'steam_new_game';
+    const input = document.getElementById('wizardOpeningText');
+    const opening = String((input && input.value) || wizState.openingText || '').trim();
+    return { hook_type: hookType, opening_text: hookType === 'custom' ? opening : '' };
+}
+
+function wizardSyncHookControls() {
+    const group = document.getElementById('wizardHookTypeGroup');
+    if (group && group.style) group.style.display = wizState.scriptMode === 'caveman' ? 'none' : '';
+    const select = document.getElementById('wizardHookType');
+    const input = document.getElementById('wizardOpeningText');
+    if (input && input.style) input.style.display = (select && select.value === 'custom') ? '' : 'none';
+}
+
+function wizardCutStartModeValue() {
+    const select = document.getElementById('wizardCutStartMode');
+    const value = (select && select.value) || wizState.cutStartMode;
+    return value === 'best_moment' ? 'best_moment' : 'shot_start';
+}
+
+// The wizard voice is synthesized at 1.10x; the script word budget uses the same speed.
+const WIZARD_VOICE_SPEED = 1.10;
 
 function wizardSelectScriptMode(mode) {
     wizardSetScriptMode(mode);
@@ -16721,6 +17429,11 @@ async function wizardGenerateScript() {
     wizState.gameGenre = gameGenre;
 
     if (!gameName) { showToast('Escribe el nombre del juego.', 'warning'); return; }
+    const hookFields = wizardHookRequestFields();
+    if (hookFields.hook_type === 'custom' && !hookFields.opening_text) {
+        showToast('Escribe la frase de «Entrada propia» o elige otra entrada.', 'warning');
+        return;
+    }
 
     const btn = document.getElementById('wizardBtnGenScript');
     const btnRegen = document.getElementById('wizardBtnRegenScript');
@@ -16738,7 +17451,8 @@ async function wizardGenerateScript() {
                 game_name: gameName,
                 target_duration: 30.0,
                 tone: 'viral_hype',
-                hook_type: scriptMode === 'caveman' ? 'caveman' : 'steam_new_game',
+                ...hookFields,
+                speech_speed: WIZARD_VOICE_SPEED,
                 script_mode: scriptMode,
                 game_genre: gameGenre,
                 briefing_text: briefing,
@@ -16774,7 +17488,7 @@ async function wizardGenerateScript() {
                         video_path: videoPath,
                         video_paths: videoPaths,
                         game_name: gameName,
-                        hook_type: scriptMode === 'caveman' ? 'caveman' : 'steam_new_game',
+                        ...hookFields,
                         script_mode: scriptMode,
                         game_genre: gameGenre,
                         voice_id: wizState.voiceId || null,
@@ -16841,7 +17555,7 @@ async function wizardSynthesizeVoice() {
                 video_paths: wizState.selectedFiles.map(f => f.path),
                 script_text: scriptText,
                 voice_id: wizState.voiceId || null,
-                speed: 1.10,
+                speed: WIZARD_VOICE_SPEED,
                 stability: 0.50,
             }),
         });
@@ -16907,7 +17621,7 @@ async function wizardSynthesizeVoice() {
                         video_path: videoPath,
                         video_paths: wizState.selectedFiles.map(f => f.path),
                         game_name: wizState.gameName || '',
-                        hook_type: wizState.scriptMode === 'caveman' ? 'caveman' : 'steam_new_game',
+                        ...wizardHookRequestFields(),
                         script_mode: wizState.scriptMode || 'normal',
                         game_genre: wizState.gameGenre || '',
                         voice_id: data.voice_id || wizState.voiceId || null,
@@ -17010,6 +17724,7 @@ async function wizardCreateMontage(approvedShotIds = []) {
                 game_genre: wizState.gameGenre || '',
                 script_mode: wizState.scriptMode || 'normal',
                 allow_secondary_transition: true,
+                cut_start_mode: wizardCutStartModeValue(),
                 script_text: currentScript,
                 sentence_1_end_s: currentCutVal,
                 hook_duration: currentCutVal,
@@ -17288,8 +18003,8 @@ function wizardRenderCarousel(edl) {
             <div class="card-inner">
                 <span class="card-badge">#${i + 1} · ${dur}s</span>
                 ${previewUrl
-                    ? `<video class="card-video" src="${previewUrl}" muted loop playsinline preload="metadata"></video>`
-                    : `<div class="card-video" style="display:flex;align-items:center;justify-content:center;font-size:24px;color:var(--text-muted);">🎬 Shot ${shotId}</div>`
+                    ? `<video class="card-video" src="${escapeHtml(previewUrl)}" muted loop playsinline preload="metadata"></video>`
+                    : `<div class="card-video" style="display:flex;align-items:center;justify-content:center;font-size:24px;color:var(--text-muted);">🎬 Shot ${escapeHtml(shotId)}</div>`
                 }
                 <div class="card-caption"></div>
             </div>
@@ -17928,12 +18643,12 @@ function wizardRenderSfxLibraryGrid() {
     grid.innerHTML = lib.map(item => `
         <div class="sfx-card-item" style="padding: 8px; background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; display: flex; flex-direction: column; gap: 4px;">
             <div style="display: flex; justify-content: space-between; align-items: center;">
-                <span style="font-size: 11px; font-weight: 700; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 85px;" title="${item.title}">${item.title}</span>
-                <span style="font-size: 9.5px; font-family: monospace; color: #a78bfa;">${item.duration}s</span>
+                <span style="font-size: 11px; font-weight: 700; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 85px;" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</span>
+                <span style="font-size: 9.5px; font-family: monospace; color: #a78bfa;">${escapeHtml(item.duration)}s</span>
             </div>
             <div style="display: flex; gap: 4px; margin-top: 2px;">
-                <button type="button" class="btn btn-sm btn-tag btn-wiz-solo-sfx" data-url="${item.url}" style="font-size: 9.5px; padding: 1px 5px; background: rgba(59, 130, 246, 0.2); color: #60a5fa; flex: 1;">▶ Solo</button>
-                <button type="button" class="btn btn-sm btn-tag btn-wiz-add-sfx" data-id="${item.id}" style="font-size: 9.5px; padding: 1px 5px; background: rgba(16, 185, 129, 0.2); color: #34d399; flex: 1;">➕ Añadir</button>
+                <button type="button" class="btn btn-sm btn-tag btn-wiz-solo-sfx" data-url="${escapeHtml(item.url)}" style="font-size: 9.5px; padding: 1px 5px; background: rgba(59, 130, 246, 0.2); color: #60a5fa; flex: 1;">▶ Solo</button>
+                <button type="button" class="btn btn-sm btn-tag btn-wiz-add-sfx" data-id="${escapeHtml(item.id)}" style="font-size: 9.5px; padding: 1px 5px; background: rgba(16, 185, 129, 0.2); color: #34d399; flex: 1;">➕ Añadir</button>
             </div>
         </div>
     `).join('');
@@ -18022,9 +18737,9 @@ function wizardRenderDynamicSfxTimeline() {
 
         return `
             <div style="display: flex; align-items: center; gap: 8px;">
-                <span style="font-size: 10px; width: 75px; font-weight: 600; color: ${trk.color}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${trk.title}">${trk.title}:</span>
+                <span style="font-size: 10px; width: 75px; font-weight: 600; color: ${escapeHtml(trk.color)}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(trk.title)}">${escapeHtml(trk.title)}:</span>
                 <div style="flex: 1; height: 14px; background: rgba(0,0,0,0.3); border-radius: 4px; position: relative; overflow: hidden;">
-                    <div style="position: absolute; left: ${leftPct}%; width: ${widthPct}%; top: 0; bottom: 0; background: ${trk.color}; border-radius: 3px; opacity: 0.85; transition: left 0.1s ease, width 0.1s ease;"></div>
+                    <div style="position: absolute; left: ${leftPct}%; width: ${widthPct}%; top: 0; bottom: 0; background: ${escapeHtml(trk.color)}; border-radius: 3px; opacity: 0.85; transition: left 0.1s ease, width 0.1s ease;"></div>
                     ${impactMarker}
                 </div>
             </div>
@@ -18042,25 +18757,25 @@ function wizardRenderDynamicSfxTimeline() {
         const peakOff = trk.peak_offset !== undefined ? trk.peak_offset : ((trk.name && trk.name.toLowerCase().includes('raiser2')) ? 1.24 : 0.0);
         const impactText = peakOff > 0 ? ` ⚡ Impacto: ${(trk.start_s + peakOff).toFixed(2)}s` : '';
         return `
-        <div class="sfx-track-card" style="padding: 10px 12px; background: rgba(0, 0, 0, 0.35); border: 1px solid ${trk.color}44; border-radius: 8px;">
+        <div class="sfx-track-card" style="padding: 10px 12px; background: rgba(0, 0, 0, 0.35); border: 1px solid ${escapeHtml(trk.color)}44; border-radius: 8px;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                 <div style="display: flex; align-items: center; gap: 6px;">
-                    <span style="width: 10px; height: 10px; border-radius: 50%; background: ${trk.color}; display: inline-block;"></span>
-                    <label style="font-weight: 700; font-size: 12px; color: ${trk.color}; margin: 0;">${trk.title}</label>
+                    <span style="width: 10px; height: 10px; border-radius: 50%; background: ${escapeHtml(trk.color)}; display: inline-block;"></span>
+                    <label style="font-weight: 700; font-size: 12px; color: ${escapeHtml(trk.color)}; margin: 0;">${escapeHtml(trk.title)}</label>
                 </div>
                 <div style="display: flex; align-items: center; gap: 8px;">
-                    <span style="font-size: 11px; font-family: monospace; color: ${trk.color};" id="wiz_lbl_sfx_val_${trk.id}">Inicio: ${trk.start_s.toFixed(2)}s${impactText} | Vol: ${Math.round(trk.volume * 100)}%</span>
-                    <button type="button" class="btn btn-sm btn-wiz-remove-trk" data-id="${trk.id}" style="font-size: 10px; padding: 1px 6px; background: rgba(239, 68, 68, 0.2); color: #f87171; border: none; border-radius: 4px;">❌</button>
+                    <span style="font-size: 11px; font-family: monospace; color: ${escapeHtml(trk.color)};" id="wiz_lbl_sfx_val_${escapeHtml(trk.id)}">Inicio: ${trk.start_s.toFixed(2)}s${impactText} | Vol: ${Math.round(trk.volume * 100)}%</span>
+                    <button type="button" class="btn btn-sm btn-wiz-remove-trk" data-id="${escapeHtml(trk.id)}" style="font-size: 10px; padding: 1px 6px; background: rgba(239, 68, 68, 0.2); color: #f87171; border: none; border-radius: 4px;">❌</button>
                 </div>
             </div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
                 <div>
                     <span style="font-size: 10.5px; color: var(--text-muted); display: block; margin-bottom: 2px;">Segundo de Inicio (start_s):</span>
-                    <input type="range" class="form-range inp-wiz-sfx-start" data-id="${trk.id}" min="0" max="25" step="0.05" value="${trk.start_s}">
+                    <input type="range" class="form-range inp-wiz-sfx-start" data-id="${escapeHtml(trk.id)}" min="0" max="25" step="0.05" value="${escapeHtml(trk.start_s)}">
                 </div>
                 <div>
                     <span style="font-size: 10.5px; color: var(--text-muted); display: block; margin-bottom: 2px;">Volumen (0% - 100%):</span>
-                    <input type="range" class="form-range inp-wiz-sfx-vol" data-id="${trk.id}" min="0" max="100" step="5" value="${Math.round(trk.volume * 100)}">
+                    <input type="range" class="form-range inp-wiz-sfx-vol" data-id="${escapeHtml(trk.id)}" min="0" max="100" step="5" value="${Math.round(trk.volume * 100)}">
                 </div>
             </div>
         </div>
@@ -18133,9 +18848,9 @@ function wizardRenderDynamicSfxVisualBarsOnly() {
 
         return `
             <div style="display: flex; align-items: center; gap: 8px;">
-                <span style="font-size: 10px; width: 75px; font-weight: 600; color: ${trk.color}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${trk.title}">${trk.title}:</span>
+                <span style="font-size: 10px; width: 75px; font-weight: 600; color: ${escapeHtml(trk.color)}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(trk.title)}">${escapeHtml(trk.title)}:</span>
                 <div style="flex: 1; height: 14px; background: rgba(0,0,0,0.3); border-radius: 4px; position: relative; overflow: hidden;">
-                    <div style="position: absolute; left: ${leftPct}%; width: ${widthPct}%; top: 0; bottom: 0; background: ${trk.color}; border-radius: 3px; opacity: 0.85; transition: left 0.1s ease, width 0.1s ease;"></div>
+                    <div style="position: absolute; left: ${leftPct}%; width: ${widthPct}%; top: 0; bottom: 0; background: ${escapeHtml(trk.color)}; border-radius: 3px; opacity: 0.85; transition: left 0.1s ease, width 0.1s ease;"></div>
                     ${impactMarker}
                 </div>
             </div>
@@ -18248,13 +18963,10 @@ async function wizardRemixSfx() {
         return;
     }
 
-    const payloadTracks = (wizState.sfxTracks || []).map(t => ({
-        name: t.name,
-        file: t.relative_path || t.filename || t.name,
-        relative_path: t.relative_path || t.filename,
-        start_s: t.start_s,
-        volume: t.volume,
-    }));
+    const wizRemixHasSplash = wizState.step5Result && typeof wizState.step5Result.has_steam_hook === 'boolean'
+        ? wizState.step5Result.has_steam_hook
+        : (wizState.steamHookMode !== 'none' && wizState.enableSteamHook !== false);
+    const payloadTracks = sfxTracksRequestPayload(wizState.sfxTracks, wizRemixHasSplash);
 
     const gVol = wizState.gameplayVolume !== undefined ? (wizState.gameplayVolume / 100.0) : 0.15;
 
@@ -18272,11 +18984,15 @@ async function wizardRemixSfx() {
                 session_id: sessId,
                 gameplay_volume: gVol,
                 sfx_tracks: payloadTracks,
+                // Same audio options as the render (ignored by servers that do not support them).
+                audio_normalize: wizState.audioNormalize !== false,
+                audio_ducking: wizState.audioDucking !== false,
             })
         });
 
         const data = await resp.json();
         if (data.status === 'ok' && data.result) {
+            showRenderWarnings(data.result, 'wizardRenderWarnings');
             const dlBtn = document.getElementById('wizardBtnDownload');
             if (dlBtn && data.result.video_url) {
                 dlBtn.href = data.result.video_url;
@@ -18716,6 +19432,8 @@ async function wizardRenderFinal() {
         const capY = parseInt(document.getElementById('wizardCapY')?.value) || wizState.captionsY || 600;
         const capColor = (wizState.captionsColor || '#FFF380').trim();
         const gameVol = (parseInt(document.getElementById('wizardGameVol')?.value) || wizState.gameplayVolume || 15) / 100.0;
+        const renderOptions = readRenderOptionsFromUi('wizard', renderOptionsFromState(wizState));
+        applyRenderOptionsToState(wizState, renderOptions);
         const enableSteam = wizState.steamHookMode !== 'none' && (document.getElementById('wizardEnableSteamHook') ? document.getElementById('wizardEnableSteamHook').checked : (wizState.enableSteamHook !== false));
         const logoScale = wizState.steamLogoScale !== undefined ? wizState.steamLogoScale : 1.3;
         const logoY = wizState.steamLogoY !== undefined ? wizState.steamLogoY : 540;
@@ -18733,13 +19451,7 @@ async function wizardRenderFinal() {
         edlPayload.sentence_1_end_s = currentCutVal;
         edlPayload.hook_duration = currentCutVal;
         if (wizState.sfxTracks && wizState.sfxTracks.length) {
-            edlPayload.sfx_tracks = wizState.sfxTracks.map(t => ({
-                name: t.name,
-                file: t.relative_path || t.filename || t.name,
-                relative_path: t.relative_path || t.filename,
-                start_s: t.start_s,
-                volume: t.volume,
-            }));
+            edlPayload.sfx_tracks = sfxTracksRequestPayload(wizState.sfxTracks, enableSteam);
         }
 
         const postRes = await fetch('/api/promov3/step5/render', {
@@ -18770,6 +19482,9 @@ async function wizardRenderFinal() {
                 game_name_reveal_scale: wizState.gameNameRevealScale !== undefined ? wizState.gameNameRevealScale : 1.0,
                 custom_game_logo_path: wizState.customGameLogoPath || null,
                 channel_branding: {...wizState.channelBranding},
+                audio_normalize: renderOptions.audio_normalize,
+                audio_ducking: renderOptions.audio_ducking,
+                output_fps: renderOptions.output_fps,
                 edl: edlPayload,
                 script_text: (document.getElementById('wizardScriptText')?.value || wizState.scriptText || '').trim(),
                 video_format: wizState.videoFormat || 'full_9_16',
@@ -18846,7 +19561,12 @@ async function wizardRenderFinal() {
                     } catch (err) { console.error('SSE parse error:', err); }
                 };
                 es.onerror = () => {
-                    // If SSE disconnects or drops, smoothly switch to polling
+                    // If SSE disconnects or drops, close it (so the browser stops
+                    // reconnecting) and smoothly switch to polling.
+                    if (es) {
+                        try { es.close(); } catch (_) {}
+                        es = null;
+                    }
                     if (!pollTimer && !finished) {
                         pollTimer = setInterval(pollJob, 1000);
                     }
@@ -18888,6 +19608,7 @@ async function wizardRenderFinal() {
         }
 
         showToast('🎉 ¡Vídeo renderizado con éxito!', 'success');
+        showRenderWarnings(renderResult, 'wizardRenderWarnings');
 
         if (typeof wizardSetupApprovalUI === 'function') {
             wizardSetupApprovalUI(renderResult);
@@ -18947,8 +19668,8 @@ function wizardRenderRetentionInspector(data) {
         grid.innerHTML = `
             <div style="background: rgba(255,255,255,0.04); padding: 7px 9px; border-radius: 6px; border-left: 3px solid #38bdf8; display: flex; flex-direction: column; justify-content: space-between;">
                 <div>
-                    <div style="font-size: 9.5px; text-transform: uppercase; color: #38bdf8; font-weight: 700;">1. First Words · <span style="color:var(--text-muted); font-weight:400;">${fw.category}</span></div>
-                    <div style="font-size: 11px; color: var(--text-primary); margin-top: 2px;">"${fw.text || '-'}"</div>
+                    <div style="font-size: 9.5px; text-transform: uppercase; color: #38bdf8; font-weight: 700;">1. First Words · <span style="color:var(--text-muted); font-weight:400;">${escapeHtml(fw.category)}</span></div>
+                    <div style="font-size: 11px; color: var(--text-primary); margin-top: 2px;">"${escapeHtml(fw.text || '-')}"</div>
                 </div>
                 ${fw.start_time != null ? `
                     <div style="font-size: 9.5px; font-family: monospace; color: #38bdf8; font-weight: 700; margin-top: 4px;">
@@ -18958,8 +19679,8 @@ function wizardRenderRetentionInspector(data) {
             </div>
             <div style="background: rgba(255,255,255,0.04); padding: 7px 9px; border-radius: 6px; border-left: 3px solid #a855f7; display: flex; flex-direction: column; justify-content: space-between;">
                 <div>
-                    <div style="font-size: 9.5px; text-transform: uppercase; color: #a855f7; font-weight: 700;">2. Game Genre · <span style="color:var(--text-muted); font-weight:400;">${gg.category}</span></div>
-                    <div style="font-size: 11px; color: var(--text-primary); margin-top: 2px;">"${gg.text || '-'}"</div>
+                    <div style="font-size: 9.5px; text-transform: uppercase; color: #a855f7; font-weight: 700;">2. Game Genre · <span style="color:var(--text-muted); font-weight:400;">${escapeHtml(gg.category)}</span></div>
+                    <div style="font-size: 11px; color: var(--text-primary); margin-top: 2px;">"${escapeHtml(gg.text || '-')}"</div>
                 </div>
                 ${gg.start_time != null ? `
                     <div style="font-size: 9.5px; font-family: monospace; color: #c084fc; font-weight: 700; margin-top: 4px;">
@@ -18969,8 +19690,8 @@ function wizardRenderRetentionInspector(data) {
             </div>
             <div style="background: rgba(255,255,255,0.04); padding: 7px 9px; border-radius: 6px; border-left: 3px solid #f59e0b; display: flex; flex-direction: column; justify-content: space-between;">
                 <div>
-                    <div style="font-size: 9.5px; text-transform: uppercase; color: #f59e0b; font-weight: 700;">3. First Punch · <span style="color:var(--text-muted); font-weight:400;">${fp.category}</span></div>
-                    <div style="font-size: 11px; color: var(--text-primary); margin-top: 2px;">"${fp.text || '-'}"</div>
+                    <div style="font-size: 9.5px; text-transform: uppercase; color: #f59e0b; font-weight: 700;">3. First Punch · <span style="color:var(--text-muted); font-weight:400;">${escapeHtml(fp.category)}</span></div>
+                    <div style="font-size: 11px; color: var(--text-primary); margin-top: 2px;">"${escapeHtml(fp.text || '-')}"</div>
                 </div>
                 ${fp.start_time != null ? `
                     <div style="font-size: 9.5px; font-family: monospace; color: #f59e0b; font-weight: 700; margin-top: 4px;">
@@ -18980,8 +19701,8 @@ function wizardRenderRetentionInspector(data) {
             </div>
             <div style="background: rgba(255,255,255,0.04); padding: 7px 9px; border-radius: 6px; border-left: 3px solid #ef4444; display: flex; flex-direction: column; justify-content: space-between;">
                 <div>
-                    <div style="font-size: 9.5px; text-transform: uppercase; color: #ef4444; font-weight: 700;">4. Second Punch · <span style="color:var(--text-muted); font-weight:400;">${sp.category}</span></div>
-                    <div style="font-size: 11px; color: var(--text-primary); margin-top: 2px;">"${sp.text || '(Concepto central autosuficiente)'}"</div>
+                    <div style="font-size: 9.5px; text-transform: uppercase; color: #ef4444; font-weight: 700;">4. Second Punch · <span style="color:var(--text-muted); font-weight:400;">${escapeHtml(sp.category)}</span></div>
+                    <div style="font-size: 11px; color: var(--text-primary); margin-top: 2px;">"${escapeHtml(sp.text || '(Concepto central autosuficiente)')}"</div>
                 </div>
                 ${sp.start_time != null ? `
                     <div style="font-size: 9.5px; font-family: monospace; color: #22c55e; font-weight: 700; margin-top: 4px;">
@@ -19004,17 +19725,17 @@ function wizardRenderRetentionInspector(data) {
 
             let loopBadge = '';
             if (s.open_loop?.id) {
-                loopBadge = `<span style="background: rgba(239, 68, 68, 0.15); color: #fca5a5; padding: 1px 5px; border-radius: 4px; font-size: 9.5px; font-weight: 600;">🔓 Loop ${s.open_loop.id} (${s.open_loop.type || 'CURIOSITY'})</span>`;
+                loopBadge = `<span style="background: rgba(239, 68, 68, 0.15); color: #fca5a5; padding: 1px 5px; border-radius: 4px; font-size: 9.5px; font-weight: 600;">🔓 Loop ${escapeHtml(s.open_loop.id)} (${escapeHtml(s.open_loop.type || 'CURIOSITY')})</span>`;
             } else if (s.open_loop?.resolves) {
-                loopBadge = `<span style="background: rgba(16, 185, 129, 0.15); color: #6ee7b7; padding: 1px 5px; border-radius: 4px; font-size: 9.5px; font-weight: 600;">🔒 Resuelve ${s.open_loop.resolves}</span>`;
+                loopBadge = `<span style="background: rgba(16, 185, 129, 0.15); color: #6ee7b7; padding: 1px 5px; border-radius: 4px; font-size: 9.5px; font-weight: 600;">🔒 Resuelve ${escapeHtml(s.open_loop.resolves)}</span>`;
             }
 
             const deviceBadge = (s.attention_device && s.attention_device !== 'NONE')
-                ? `<span style="font-size: 9.5px; color: #fbbf24; background: rgba(251, 191, 36, 0.1); padding: 1px 4px; border-radius: 3px;">Device: ${s.attention_device}</span>`
+                ? `<span style="font-size: 9.5px; color: #fbbf24; background: rgba(251, 191, 36, 0.1); padding: 1px 4px; border-radius: 3px;">Device: ${escapeHtml(s.attention_device)}</span>`
                 : '';
 
             const funcBadge = s.information_function
-                ? `<span style="font-size: 9.5px; color: #94a3b8; background: rgba(255,255,255,0.04); padding: 1px 4px; border-radius: 3px;">${s.information_function}</span>`
+                ? `<span style="font-size: 9.5px; color: #94a3b8; background: rgba(255,255,255,0.04); padding: 1px 4px; border-radius: 3px;">${escapeHtml(s.information_function)}</span>`
                 : '';
 
             const timeBadge = (s.start_time != null && s.end_time != null)
@@ -19026,14 +19747,14 @@ function wizardRenderRetentionInspector(data) {
             return `
                 <div style="background: rgba(255,255,255,0.03); border-radius: 6px; padding: 6px 8px; border-left: 3px solid ${blockColor}; display: flex; flex-direction: column; gap: 4px;">
                     <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
-                        <span style="font-weight: 700; color: ${blockColor}; font-size: 10px;">[${blockName}]</span>
-                        <span style="font-size: 9.5px; color: var(--text-muted); background: rgba(255,255,255,0.05); padding: 1px 4px; border-radius: 3px;">${s.sentence_type || 'BEAT'}</span>
+                        <span style="font-weight: 700; color: ${blockColor}; font-size: 10px;">[${escapeHtml(blockName)}]</span>
+                        <span style="font-size: 9.5px; color: var(--text-muted); background: rgba(255,255,255,0.05); padding: 1px 4px; border-radius: 3px;">${escapeHtml(s.sentence_type || 'BEAT')}</span>
                         ${timeBadge}
                         ${deviceBadge}
                         ${funcBadge}
                         ${loopBadge}
                     </div>
-                    <div style="font-size: 11px; color: var(--text-primary); line-height: 1.35; font-weight: 500;">${s.text}</div>
+                    <div style="font-size: 11px; color: var(--text-primary); line-height: 1.35; font-weight: 500;">${escapeHtml(s.text)}</div>
 
                     ${hasClauses ? `
                         <div style="margin-top: 4px; padding-top: 4px; border-top: 1px dashed rgba(255,255,255,0.06); display: flex; flex-direction: column; gap: 3px;">
@@ -19717,7 +20438,7 @@ function renderScreenshotSelector() {
         const brandColor = (carouselState.theme === 'guam') ? '#ff7d00' : '#7ca032';
         if (game.has_discount && game.initial_formatted) {
             const discountBadge = (game.discount_percent && game.discount_percent > 0)
-                ? `<span style="font-size: 10px; font-weight: 800; background: ${brandColor}; color: #ffffff; padding: 1.5px 6px; border-radius: 4px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); line-height: 1.1;">-${game.discount_percent}%</span>`
+                ? `<span style="font-size: 10px; font-weight: 800; background: ${brandColor}; color: #ffffff; padding: 1.5px 6px; border-radius: 4px; box-shadow: 0 1px 4px rgba(0,0,0,0.3); line-height: 1.1;">-${escapeHtml(game.discount_percent)}%</span>`
                 : '';
             priceBadgeHtml = `
                 <div style="display: inline-flex; align-items: center; gap: 7px; background: rgba(0,0,0,0.5); padding: 3px 8px; border-radius: 6px; border: 1px solid rgba(124, 160, 50, 0.4);">
@@ -19741,7 +20462,7 @@ function renderScreenshotSelector() {
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 6px;">
                 <div style="display: flex; align-items: center; gap: 8px;">
                     <span style="font-size: 13.5px; font-weight: 700; color: #fdf3da;">${gIdx + 1}. ${escapeHtml(game.name)}</span>
-                    <a href="${game.store_url}" target="_blank" style="color: #7ca032; font-size: 11px; text-decoration: none; opacity: 0.8;" title="Ver en Steam">🔗 Steam</a>
+                    ${safeHttpUrl(game.store_url) ? `<a href="${escapeHtml(safeHttpUrl(game.store_url))}" target="_blank" rel="noopener noreferrer" style="color: #7ca032; font-size: 11px; text-decoration: none; opacity: 0.8;" title="Ver en Steam">🔗 Steam</a>` : ''}
                 </div>
                 <div style="display: flex; align-items: center; gap: 10px;">
                     ${priceBadgeHtml}
@@ -19758,7 +20479,7 @@ function renderScreenshotSelector() {
                     const checkmarkDisplay = isSelected ? 'flex' : 'none';
                     return `
                         <div class="carousel-shot-item" onclick="carouselToggleScreenshot(${gIdx}, ${sIdx})" style="position: relative; aspect-ratio: 16/9; border-radius: 6px; overflow: hidden; cursor: pointer; border: ${borderStyle}; opacity: ${opacityStyle}; transition: all 0.15s; background: #000;">
-                            <img src="${s.thumb || s.full}" style="width: 100%; height: 100%; object-fit: cover;" />
+                            <img src="${escapeHtml(s.thumb || s.full)}" style="width: 100%; height: 100%; object-fit: cover;" />
                             <div class="carousel-shot-check" style="display: ${checkmarkDisplay}; position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; background: #7ca032; color: #121e10; border-radius: 50%; font-size: 12px; font-weight: 900; align-items: center; justify-content: center; box-shadow: 0 2px 5px rgba(0,0,0,0.5);">
                                 ✓
                             </div>
@@ -20019,12 +20740,12 @@ function displayExportResult(data) {
 
             item.innerHTML = `
                 <div style="aspect-ratio: 3/4; border-radius: 4px; overflow: hidden; margin-bottom: 6px;">
-                    <img src="${s.url}" style="width: 100%; height: 100%; object-fit: cover;" />
+                    <img src="${escapeHtml(s.url)}" style="width: 100%; height: 100%; object-fit: cover;" />
                 </div>
                 <div style="font-size: 11px; font-weight: 700; color: #fdf3da; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 4px;">
                     ${escapeHtml(s.title)}
                 </div>
-                <a href="${s.url}" download="${s.filename}" class="wizard-btn-secondary" style="display: block; font-size: 10px; padding: 3px 0; text-decoration: none; border-radius: 4px;">
+                <a href="${escapeHtml(s.url)}" download="${escapeHtml(s.filename)}" class="wizard-btn-secondary" style="display: block; font-size: 10px; padding: 3px 0; text-decoration: none; border-radius: 4px;">
                     Descargar PNG
                 </a>
             `;
@@ -21313,10 +22034,10 @@ function renderThreeGamesSlideControls() {
             <div style="background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 10px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;">
                 <div style="display: flex; align-items: center; gap: 10px;">
                     <div style="width: 48px; height: 48px; background: #0f172a; border-radius: 6px; display: flex; align-items: center; justify-content: center; overflow: hidden; border: 1px solid rgba(255,255,255,0.15);">
-                        ${curSticker ? `<img src="${curSticker}" style="max-width: 100%; max-height: 100%; object-fit: contain;" />` : `<span style="font-size: 11px; color:#64748b;">N/A</span>`}
+                        ${curSticker ? `<img src="${escapeHtml(curSticker)}" style="max-width: 100%; max-height: 100%; object-fit: contain;" />` : `<span style="font-size: 11px; color:#64748b;">N/A</span>`}
                     </div>
                     <div>
-                        <div style="font-size: 12px; font-weight: 700; color: #f8fafc;">${g.name}</div>
+                        <div style="font-size: 12px; font-weight: 700; color: #f8fafc;">${escapeHtml(g.name)}</div>
                         <div style="font-size: 10.5px; color: #94a3b8;">Pegatina ${sList.length > 0 ? (curIdx % sList.length) + 1 : 0} de ${sList.length}</div>
                     </div>
                 </div>
@@ -21332,22 +22053,22 @@ function renderThreeGamesSlideControls() {
             
             <div style="margin-bottom: 12px;">
                 <label style="font-size: 11px; color: #94a3b8; display: block; margin-bottom: 4px;">Línea 1 (Palabra con pincelada):</label>
-                <input type="text" class="wizard-form-input" style="width: 100%; height: 32px; font-size: 12px;" value="${cover.title_line1 || '3 JUEGOS'}" oninput="threeGamesState.cover.title_line1 = this.value; threeGamesUpdatePreview();" />
+                <input type="text" class="wizard-form-input" style="width: 100%; height: 32px; font-size: 12px;" value="${escapeHtml(cover.title_line1 || '3 JUEGOS')}" oninput="threeGamesState.cover.title_line1 = this.value; threeGamesUpdatePreview();" />
             </div>
 
             <div style="margin-bottom: 12px;">
                 <label style="font-size: 11px; color: #94a3b8; display: block; margin-bottom: 4px;">Texto Resaltado:</label>
-                <input type="text" class="wizard-form-input" style="width: 100%; height: 32px; font-size: 12px;" value="${cover.title_highlight || 'IMPRESCINDIBLES'}" oninput="threeGamesState.cover.title_highlight = this.value; threeGamesUpdatePreview();" />
+                <input type="text" class="wizard-form-input" style="width: 100%; height: 32px; font-size: 12px;" value="${escapeHtml(cover.title_highlight || 'IMPRESCINDIBLES')}" oninput="threeGamesState.cover.title_highlight = this.value; threeGamesUpdatePreview();" />
             </div>
 
             <div style="margin-bottom: 12px;">
                 <label style="font-size: 11px; color: #94a3b8; display: block; margin-bottom: 4px;">Línea 2 (Subtítulo del título):</label>
-                <input type="text" class="wizard-form-input" style="width: 100%; height: 32px; font-size: 12px;" value="${cover.title_line2 || 'PARA JUGAR CON AMIGOS.'}" oninput="threeGamesState.cover.title_line2 = this.value; threeGamesUpdatePreview();" />
+                <input type="text" class="wizard-form-input" style="width: 100%; height: 32px; font-size: 12px;" value="${escapeHtml(cover.title_line2 || 'PARA JUGAR CON AMIGOS.')}" oninput="threeGamesState.cover.title_line2 = this.value; threeGamesUpdatePreview();" />
             </div>
 
             <div style="margin-bottom: 16px;">
                 <label style="font-size: 11px; color: #94a3b8; display: block; margin-bottom: 4px;">Gancho descriptivo inferior:</label>
-                <input type="text" class="wizard-form-input" style="width: 100%; height: 32px; font-size: 12px;" value="${cover.subtitle || 'El caos está garantizado desde el minuto uno.'}" oninput="threeGamesState.cover.subtitle = this.value; threeGamesUpdatePreview();" />
+                <input type="text" class="wizard-form-input" style="width: 100%; height: 32px; font-size: 12px;" value="${escapeHtml(cover.subtitle || 'El caos está garantizado desde el minuto uno.')}" oninput="threeGamesState.cover.subtitle = this.value; threeGamesUpdatePreview();" />
             </div>
 
             <h5 style="font-size: 12.5px; font-weight: 700; color: #f8fafc; margin-bottom: 8px;">🦖 Huecos de Personajes (Composición triangular):</h5>
@@ -21370,21 +22091,21 @@ function renderThreeGamesSlideControls() {
 
         container.innerHTML = `
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                <h4 style="font-size: 14px; font-weight: 700; color: #f59e0b; margin: 0;">🎮 Configurar ${g.name} (Slide ${slideNum})</h4>
-                <span style="font-size: 11px; color: #38bdf8; font-weight: 700;">${g.badge_num}</span>
+                <h4 style="font-size: 14px; font-weight: 700; color: #f59e0b; margin: 0;">🎮 Configurar ${escapeHtml(g.name)} (Slide ${slideNum})</h4>
+                <span style="font-size: 11px; color: #38bdf8; font-weight: 700;">${escapeHtml(g.badge_num)}</span>
             </div>
 
             <!-- Hook Title -->
             <div style="margin-bottom: 12px;">
                 <label style="font-size: 11px; color: #94a3b8; display: block; margin-bottom: 4px;">Pregunta / Gancho principal:</label>
-                <input type="text" class="wizard-form-input" style="width: 100%; height: 32px; font-size: 12px; font-weight: 700;" value="${g.hook_title || ''}" oninput="threeGamesState.games[${gIdx}].hook_title = this.value; threeGamesUpdatePreview();" />
+                <input type="text" class="wizard-form-input" style="width: 100%; height: 32px; font-size: 12px; font-weight: 700;" value="${escapeHtml(g.hook_title || '')}" oninput="threeGamesState.games[${gIdx}].hook_title = this.value; threeGamesUpdatePreview();" />
             </div>
 
             <!-- Hueco Personaje (Sticker Pop-out) -->
             <div style="background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 8px; padding: 10px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
                 <div style="display: flex; align-items: center; gap: 10px;">
                     <div style="width: 50px; height: 50px; background: #0f172a; border-radius: 6px; display: flex; align-items: center; justify-content: center; overflow: hidden; border: 1px solid rgba(255,255,255,0.15);">
-                        ${curSticker ? `<img src="${curSticker}" style="max-width: 100%; max-height: 100%; object-fit: contain;" />` : `<span style="font-size: 10px; color:#64748b;">N/A</span>`}
+                        ${curSticker ? `<img src="${escapeHtml(curSticker)}" style="max-width: 100%; max-height: 100%; object-fit: contain;" />` : `<span style="font-size: 10px; color:#64748b;">N/A</span>`}
                     </div>
                     <div>
                         <div style="font-size: 12px; font-weight: 700; color: #f8fafc;">Hueco: Personaje Troquelado</div>
@@ -21401,7 +22122,7 @@ function renderThreeGamesSlideControls() {
             <div style="background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; padding: 10px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;">
                 <div style="display: flex; align-items: center; gap: 10px;">
                     <div style="width: 50px; height: 32px; background: #0f172a; border-radius: 4px; overflow: hidden; border: 1px solid rgba(255,255,255,0.15);">
-                        ${curSc1 ? `<img src="${curSc1}" style="width: 100%; height: 100%; object-fit: cover;" />` : `<span style="font-size: 10px; color:#64748b;">N/A</span>`}
+                        ${curSc1 ? `<img src="${escapeHtml(curSc1)}" style="width: 100%; height: 100%; object-fit: cover;" />` : `<span style="font-size: 10px; color:#64748b;">N/A</span>`}
                     </div>
                     <div>
                         <div style="font-size: 11.5px; font-weight: 700; color: #f8fafc;">Hueco: Captura Superior</div>
@@ -21418,7 +22139,7 @@ function renderThreeGamesSlideControls() {
             <div style="background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; padding: 10px; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between;">
                 <div style="display: flex; align-items: center; gap: 10px;">
                     <div style="width: 50px; height: 32px; background: #0f172a; border-radius: 4px; overflow: hidden; border: 1px solid rgba(255,255,255,0.15);">
-                        ${curSc2 ? `<img src="${curSc2}" style="width: 100%; height: 100%; object-fit: cover;" />` : `<span style="font-size: 10px; color:#64748b;">N/A</span>`}
+                        ${curSc2 ? `<img src="${escapeHtml(curSc2)}" style="width: 100%; height: 100%; object-fit: cover;" />` : `<span style="font-size: 10px; color:#64748b;">N/A</span>`}
                     </div>
                     <div>
                         <div style="font-size: 11.5px; font-weight: 700; color: #f8fafc;">Hueco: Captura Inferior</div>
@@ -21434,15 +22155,15 @@ function renderThreeGamesSlideControls() {
             <!-- Bullets -->
             <div style="margin-bottom: 10px;">
                 <label style="font-size: 11px; color: #94a3b8; display: block; margin-bottom: 4px;">Viñetas de texto (3 líneas):</label>
-                <input type="text" class="wizard-form-input" style="width: 100%; height: 30px; font-size: 11.5px; margin-bottom: 4px;" value="${g.bullets[0] || ''}" oninput="threeGamesState.games[${gIdx}].bullets[0] = this.value; threeGamesUpdatePreview();" />
-                <input type="text" class="wizard-form-input" style="width: 100%; height: 30px; font-size: 11.5px; margin-bottom: 4px;" value="${g.bullets[1] || ''}" oninput="threeGamesState.games[${gIdx}].bullets[1] = this.value; threeGamesUpdatePreview();" />
-                <input type="text" class="wizard-form-input" style="width: 100%; height: 30px; font-size: 11.5px;" value="${g.bullets[2] || ''}" oninput="threeGamesState.games[${gIdx}].bullets[2] = this.value; threeGamesUpdatePreview();" />
+                <input type="text" class="wizard-form-input" style="width: 100%; height: 30px; font-size: 11.5px; margin-bottom: 4px;" value="${escapeHtml(g.bullets[0] || '')}" oninput="threeGamesState.games[${gIdx}].bullets[0] = this.value; threeGamesUpdatePreview();" />
+                <input type="text" class="wizard-form-input" style="width: 100%; height: 30px; font-size: 11.5px; margin-bottom: 4px;" value="${escapeHtml(g.bullets[1] || '')}" oninput="threeGamesState.games[${gIdx}].bullets[1] = this.value; threeGamesUpdatePreview();" />
+                <input type="text" class="wizard-form-input" style="width: 100%; height: 30px; font-size: 11.5px;" value="${escapeHtml(g.bullets[2] || '')}" oninput="threeGamesState.games[${gIdx}].bullets[2] = this.value; threeGamesUpdatePreview();" />
             </div>
 
             <!-- Tag / Badge -->
             <div>
                 <label style="font-size: 11px; color: #94a3b8; display: block; margin-bottom: 4px;">Etiqueta destacada amarilla:</label>
-                <input type="text" class="wizard-form-input" style="width: 100%; height: 32px; font-size: 12px; font-weight: 700;" value="${g.tag || ''}" oninput="threeGamesState.games[${gIdx}].tag = this.value; threeGamesUpdatePreview();" />
+                <input type="text" class="wizard-form-input" style="width: 100%; height: 32px; font-size: 12px; font-weight: 700;" value="${escapeHtml(g.tag || '')}" oninput="threeGamesState.games[${gIdx}].tag = this.value; threeGamesUpdatePreview();" />
             </div>
         `;
     } else {
@@ -21453,24 +22174,24 @@ function renderThreeGamesSlideControls() {
 
             <div style="margin-bottom: 12px;">
                 <label style="font-size: 11px; color: #94a3b8; display: block; margin-bottom: 4px;">Pregunta final (CTA):</label>
-                <input type="text" class="wizard-form-input" style="width: 100%; height: 32px; font-size: 12px; font-weight: 700;" value="${outro.cta_title || ''}" oninput="threeGamesState.outro.cta_title = this.value; threeGamesUpdatePreview();" />
+                <input type="text" class="wizard-form-input" style="width: 100%; height: 32px; font-size: 12px; font-weight: 700;" value="${escapeHtml(outro.cta_title || '')}" oninput="threeGamesState.outro.cta_title = this.value; threeGamesUpdatePreview();" />
             </div>
 
             <div style="margin-bottom: 12px;">
                 <label style="font-size: 11px; color: #94a3b8; display: block; margin-bottom: 4px;">Llamada a compartir:</label>
-                <input type="text" class="wizard-form-input" style="width: 100%; height: 32px; font-size: 12px;" value="${outro.share_text || ''}" oninput="threeGamesState.outro.share_text = this.value; threeGamesUpdatePreview();" />
+                <input type="text" class="wizard-form-input" style="width: 100%; height: 32px; font-size: 12px;" value="${escapeHtml(outro.share_text || '')}" oninput="threeGamesState.outro.share_text = this.value; threeGamesUpdatePreview();" />
             </div>
 
             <div style="margin-bottom: 16px;">
                 <label style="font-size: 11px; color: #94a3b8; display: block; margin-bottom: 4px;">Llamada a guardar (Botón amarillo):</label>
-                <input type="text" class="wizard-form-input" style="width: 100%; height: 32px; font-size: 12px; font-weight: 700;" value="${outro.save_text || ''}" oninput="threeGamesState.outro.save_text = this.value; threeGamesUpdatePreview();" />
+                <input type="text" class="wizard-form-input" style="width: 100%; height: 32px; font-size: 12px; font-weight: 700;" value="${escapeHtml(outro.save_text || '')}" oninput="threeGamesState.outro.save_text = this.value; threeGamesUpdatePreview();" />
             </div>
 
             <h5 style="font-size: 12.5px; font-weight: 700; color: #f8fafc; margin-bottom: 8px;">Etiquetas de las 3 tarjetas:</h5>
             ${games.map((g, idx) => `
                 <div style="margin-bottom: 8px;">
-                    <label style="font-size: 10.5px; color: #94a3b8; display: block; margin-bottom: 3px;">${g.name}:</label>
-                    <input type="text" class="wizard-form-input" style="width: 100%; height: 30px; font-size: 11.5px;" value="${g.summary_label || ''}" oninput="threeGamesState.games[${idx}].summary_label = this.value; threeGamesUpdatePreview();" />
+                    <label style="font-size: 10.5px; color: #94a3b8; display: block; margin-bottom: 3px;">${escapeHtml(g.name)}:</label>
+                    <input type="text" class="wizard-form-input" style="width: 100%; height: 30px; font-size: 11.5px;" value="${escapeHtml(g.summary_label || '')}" oninput="threeGamesState.games[${idx}].summary_label = this.value; threeGamesUpdatePreview();" />
                 </div>
             `).join('')}
         `;
@@ -21588,9 +22309,9 @@ async function threeGamesExportCarousel() {
         if (thumbsContainer) {
             thumbsContainer.innerHTML = data.slides.map(s => `
                 <div style="background: #0f172a; border-radius: 8px; overflow: hidden; border: 1px solid rgba(255,255,255,0.15); box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
-                    <img src="${s.url}" style="width: 100%; height: auto; display: block;" />
+                    <img src="${escapeHtml(s.url)}" style="width: 100%; height: auto; display: block;" />
                     <div style="padding: 6px; text-align: center;">
-                        <a href="${s.url}" download="${s.name}.png" style="font-size: 11px; color: #38bdf8; text-decoration: none; font-weight: 700;">Descargar ↓</a>
+                        <a href="${escapeHtml(s.url)}" download="${escapeHtml(s.name)}.png" style="font-size: 11px; color: #38bdf8; text-decoration: none; font-weight: 700;">Descargar ↓</a>
                     </div>
                 </div>
             `).join('');
@@ -21909,6 +22630,7 @@ function renderApprovedVideos() {
     }
 
     // Render cards
+    // Buttons are handled by the grid's delegated click listener (initApprovedVideosTab).
     grid.innerHTML = filtered.map(v => renderApprovedCardHtml(v)).join('');
 }
 window.renderApprovedVideos = renderApprovedVideos;
@@ -21970,14 +22692,14 @@ function renderApprovedCardHtml(v) {
         <div class="approved-video-card" data-video-id="${escapeHtml(v.id)}">
             <div class="approved-card-header">
                 <div class="approved-card-title-group">
-                    <span class="${accClass}">${accIcon} ${accLabel}</span>
+                    <span class="${accClass}">${accIcon} ${escapeHtml(accLabel)}</span>
                     <h2 class="approved-card-game">${gameName}</h2>
                 </div>
                 <div class="approved-meta-pills">
-                    <span class="approved-meta-pill pill-duration">⏱️ ${durationSec}</span>
-                    <span class="approved-meta-pill pill-resolution">${resolution}</span>
-                    ${wordCount ? `<span class="approved-meta-pill">📝 ${wordCount}</span>` : ''}
-                    <span class="approved-meta-pill">📅 ${dateFormatted}</span>
+                    <span class="approved-meta-pill pill-duration">⏱️ ${escapeHtml(durationSec)}</span>
+                    <span class="approved-meta-pill pill-resolution">${escapeHtml(resolution)}</span>
+                    ${wordCount ? `<span class="approved-meta-pill">📝 ${escapeHtml(wordCount)}</span>` : ''}
+                    <span class="approved-meta-pill">📅 ${escapeHtml(dateFormatted)}</span>
                 </div>
             </div>
 
@@ -21985,12 +22707,12 @@ function renderApprovedCardHtml(v) {
                 <!-- Video pane -->
                 <div class="approved-video-pane">
                     ${outputUrl ? `
-                        <video controls preload="metadata" playsinline class="approved-video-player" src="${outputUrl}"></video>
+                        <video controls preload="metadata" playsinline class="approved-video-player" src="${escapeHtml(outputUrl)}"></video>
                         <div class="approved-video-actions">
-                            <a href="${outputUrl}" download="${cleanFileName}.mp4" class="btn btn-secondary btn-sm" title="Descargar archivo MP4">
+                            <a href="${escapeHtml(outputUrl)}" download="${escapeHtml(cleanFileName)}.mp4" class="btn btn-secondary btn-sm" title="Descargar archivo MP4">
                                 ⬇️ Descargar
                             </a>
-                            <a href="${outputUrl}" target="_blank" class="btn btn-secondary btn-sm" title="Abrir vídeo en pestaña nueva">
+                            <a href="${escapeHtml(outputUrl)}" target="_blank" rel="noopener" class="btn btn-secondary btn-sm" title="Abrir vídeo en pestaña nueva">
                                 👁️ Abrir
                             </a>
                         </div>
@@ -22018,7 +22740,7 @@ function renderApprovedCardHtml(v) {
                     <div class="approved-script-box">
                         <div class="approved-script-header">
                             <span class="approved-script-label">🎙️ Guión de Locución</span>
-                            <button type="button" class="btn btn-secondary btn-sm btn-copy-script" data-video-id="${escapeHtml(v.id)}" style="font-size: 11px; padding: 3px 8px;" onclick="copyApprovedScript('${escapeHtml(v.id)}')">
+                            <button type="button" class="btn btn-secondary btn-sm btn-copy-script" data-video-id="${escapeHtml(v.id)}" style="font-size: 11px; padding: 3px 8px;">
                                 📋 Copiar Guión
                             </button>
                         </div>
@@ -22035,9 +22757,9 @@ function renderApprovedCardHtml(v) {
                             ${metrics.views != null ? `<span class="metric-stat-item">👁️ <span class="metric-num">${Number(metrics.views).toLocaleString()}</span> vistas</span>` : ''}
                             ${metrics.likes != null ? `<span class="metric-stat-item">❤️ <span class="metric-num">${Number(metrics.likes).toLocaleString()}</span> likes</span>` : ''}
                             ${metrics.comments != null ? `<span class="metric-stat-item">💬 <span class="metric-num">${Number(metrics.comments).toLocaleString()}</span></span>` : ''}
-                            ${metrics.retention_at_3s != null ? `<span class="metric-stat-item">⚡ <span class="metric-num">${metrics.retention_at_3s}%</span> @ 3s</span>` : ''}
-                            ${metrics.retention_rate_avg != null ? `<span class="metric-stat-item">📊 <span class="metric-num">${metrics.retention_rate_avg}%</span> ret. media</span>` : ''}
-                            ${metrics.post_url ? `<a href="${escapeHtml(metrics.post_url)}" target="_blank" class="metric-stat-item" style="color: #38bdf8; text-decoration: none;">🔗 Ver Post</a>` : ''}
+                            ${metrics.retention_at_3s != null ? `<span class="metric-stat-item">⚡ <span class="metric-num">${escapeHtml(metrics.retention_at_3s)}%</span> @ 3s</span>` : ''}
+                            ${metrics.retention_rate_avg != null ? `<span class="metric-stat-item">📊 <span class="metric-num">${escapeHtml(metrics.retention_rate_avg)}%</span> ret. media</span>` : ''}
+                            ${safeHttpUrl(metrics.post_url) ? `<a href="${escapeHtml(safeHttpUrl(metrics.post_url))}" target="_blank" rel="noopener noreferrer" class="metric-stat-item" style="color: #38bdf8; text-decoration: none;">🔗 Ver Post</a>` : ''}
                         ` : `
                             <span class="metric-stat-empty">Sin métricas de rendimiento registradas todavía.</span>
                         `}
@@ -22048,15 +22770,15 @@ function renderApprovedCardHtml(v) {
             <!-- Card footer -->
             <div class="approved-card-footer">
                 <div class="approved-footer-left">
-                    <button type="button" class="btn btn-secondary btn-sm btn-open-retention" data-video-id="${escapeHtml(v.id)}" onclick="openApprovedRetentionModal('${escapeHtml(v.id)}')">
+                    <button type="button" class="btn btn-secondary btn-sm btn-open-retention" data-video-id="${escapeHtml(v.id)}">
                         🔍 Ver Estructura y Retención Completa
                     </button>
-                    <button type="button" class="btn btn-secondary btn-sm btn-open-metrics" data-video-id="${escapeHtml(v.id)}" onclick="openApprovedMetricsModal('${escapeHtml(v.id)}')">
+                    <button type="button" class="btn btn-secondary btn-sm btn-open-metrics" data-video-id="${escapeHtml(v.id)}">
                         📊 ${hasMetrics ? 'Editar Métricas' : 'Añadir Métricas'}
                     </button>
                 </div>
                 <div class="approved-footer-right">
-                    <button type="button" class="btn btn-secondary btn-sm btn-delete-video" data-video-id="${escapeHtml(v.id)}" style="color: #f87171; border-color: rgba(239, 68, 68, 0.3);" onclick="deleteApprovedVideo('${escapeHtml(v.id)}')">
+                    <button type="button" class="btn btn-secondary btn-sm btn-delete-video" data-video-id="${escapeHtml(v.id)}" style="color: #f87171; border-color: rgba(239, 68, 68, 0.3);">
                         🗑️ Eliminar de la Base
                     </button>
                 </div>
@@ -22123,7 +22845,7 @@ function openApprovedRetentionModal(videoId) {
                 <span style="font-size: 13px; font-weight: 800; color: #d97757; text-transform: uppercase; letter-spacing: 0.5px;">
                     🎯 Gancho de Retención (4 Partes)
                 </span>
-                ${hookDurText ? `<span style="font-size: 11.5px; font-family: monospace; color: #fb923c; font-weight: 700;">${hookDurText}</span>` : ''}
+                ${hookDurText ? `<span style="font-size: 11.5px; font-family: monospace; color: #fb923c; font-weight: 700;">${escapeHtml(hookDurText)}</span>` : ''}
             </div>
             <p style="font-size: 14.5px; font-weight: 600; line-height: 1.5; color: #ede8e1; margin: 0 0 14px 0;">
                 "${escapeHtml(hook.text || scriptInfo.script_text?.split('.')[0] || '—')}"
@@ -23126,11 +23848,11 @@ function renderRetentionDebugImages(results) {
         html += `
             <div class="debug-platform-box">
                 <div class="debug-platform-title">
-                    <span>${pName}</span>
-                    <span style="font-size:10px;color:#9e978e;font-weight:normal;">${bText}</span>
+                    <span>${escapeHtml(pName)}</span>
+                    <span style="font-size:10px;color:#9e978e;font-weight:normal;">${escapeHtml(bText)}</span>
                 </div>
                 <div class="debug-image-wrap">
-                    <img src="${data.debug_image}" class="debug-img" alt="OpenCV Overlay ${pName}" title="Recorte detectado y trazado en verde">
+                    <img src="${escapeHtml(data.debug_image)}" class="debug-img" alt="OpenCV Overlay ${escapeHtml(pName)}" title="Recorte detectado y trazado en verde">
                 </div>
             </div>
         `;

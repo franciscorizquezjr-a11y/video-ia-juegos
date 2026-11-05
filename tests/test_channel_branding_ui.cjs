@@ -15,11 +15,18 @@ for (const name of ['Enabled','Preset','Text','Size','X','Y','Opacity','Controls
 }
 const badge = {enabled:false,preset:'NextLoot',text:'@nextlootgames',size:64,x:60,y:240,opacity:80};
 let task;
+// Changing the preset also loads that channel's saved video format
+// (wizardLoadPreferredVideoFormat), which needs fetch and querySelectorAll.
+const formatRequests = [];
+const formatStatus = {textContent: ''};
+const appliedFormats = [];
 const scope = vm.createContext({
     wizState:{channelBranding:badge},
     state:{presets:{NextLoot:{data:{card_username:'Next Loot Games',card_handle:'@nextlootgames'}},
                          IGD:{data:{card_username:'Indie Games Discovery',card_handle:'@indiegamesdiscovery'}}}},
-    document:{getElementById:id=>elements[id]}, URLSearchParams,
+    document:{getElementById:id=>elements[id], querySelectorAll:sel=>sel==='[data-wizard-format-status]'?[formatStatus]:[]}, URLSearchParams,
+    fetch:async url=>{formatRequests.push(url);return {ok:true,json:async()=>({video_format:'blur_3_4'})};},
+    wizardSetVideoFormat:(value)=>appliedFormats.push(value),
     Option:function(text,value){this.text=text;this.value=value;},
     setTimeout:fn=>{task=fn;return 1;},clearTimeout:()=>{task=null;}
 });
@@ -51,4 +58,11 @@ const preset=elements.wizardBrandPreset;
 preset.value='IGD';preset.events.change();
 assert.equal(badge.text,'@indiegamesdiscovery');
 assert.equal(elements.wizardBrandText.value,badge.text);
+(async()=>{
+for (let i=0;i<5;i++) await Promise.resolve();
+await new Promise(resolve=>setImmediate(resolve));
+assert.ok(formatRequests.at(-1).includes('brand=IGD'),'preset change must load that channel format');
+assert.deepEqual(appliedFormats,['blur_3_4']);
+assert.ok(formatStatus.textContent.includes('IGD'));
 console.log('Optional branding: enable/disable, exact PNG preview, text escaping, opacity and preset selection OK.');
+})().catch(e=>{console.error(e);process.exitCode=1;});

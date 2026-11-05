@@ -25,12 +25,105 @@ import api_usage as _api_usage
 
 import json
 import logging
+import os
 import time
 from pathlib import Path
+from typing import Any, Optional
 
 from utils import LLMError, ValidationError, safe_json_parse
 
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# Gemini File API / HTTP safety limits (seconds)
+#
+# Uploaded videos normally leave the PROCESSING state within seconds; the
+# deadline only stops a stuck file from blocking a worker thread forever.
+# Override with the environment variables GEMINI_FILE_PROCESSING_TIMEOUT and
+# GEMINI_HTTP_TIMEOUT (seconds); 0 disables the limit.
+# =============================================================================
+GEMINI_FILE_PROCESSING_TIMEOUT_SECONDS = 600.0
+GEMINI_FILE_POLL_INTERVAL_SECONDS = 5.0
+GEMINI_HTTP_TIMEOUT_SECONDS = 600.0
+
+
+class GeminiFileProcessingTimeout(LLMError, TimeoutError):
+    """An uploaded file stayed in PROCESSING longer than the configured deadline.
+
+    It is both an LLMError (existing callers keep working) and a TimeoutError.
+    """
+
+
+def _seconds_from_env(name: str, default: float) -> float:
+    raw = (os.environ.get(name) or "").strip()
+    if not raw:
+        return float(default)
+    try:
+        return max(0.0, float(raw))
+    except ValueError:
+        logger.warning(f"Invalid {name}={raw!r}; using {default}s.")
+        return float(default)
+
+
+def gemini_file_processing_timeout() -> float:
+    """Seconds to wait for a Gemini File API upload to become ACTIVE (0 = no limit)."""
+    return _seconds_from_env("GEMINI_FILE_PROCESSING_TIMEOUT", GEMINI_FILE_PROCESSING_TIMEOUT_SECONDS)
+
+
+def gemini_http_timeout() -> float:
+    """Per-request HTTP timeout for the genai client in seconds (0 = SDK default, no limit)."""
+    return _seconds_from_env("GEMINI_HTTP_TIMEOUT", GEMINI_HTTP_TIMEOUT_SECONDS)
+
+
+def create_genai_client(genai_module: Any, api_key: str, timeout_seconds: Optional[float] = None):
+    """Build ``genai.Client`` with an HTTP timeout when the installed SDK supports it.
+
+    Older google-genai versions without ``http_options``/``timeout`` fall back to
+    the plain client, exactly as before.
+    """
+    timeout = gemini_http_timeout() if timeout_seconds is None else max(0.0, float(timeout_seconds))
+    if timeout > 0:
+        try:
+            # google-genai expects the timeout in milliseconds.
+            return genai_module.Client(api_key=api_key, http_options={"timeout": int(timeout * 1000)})
+        except (TypeError, ValueError) as e:
+            logger.debug(f"genai.Client without HTTP timeout (unsupported by the installed SDK): {e}")
+    return genai_module.Client(api_key=api_key)
+
+
+def wait_for_gemini_file_active(
+    client: Any,
+    uploaded_file: Any,
+    timeout_seconds: Optional[float] = None,
+    poll_interval: float = GEMINI_FILE_POLL_INTERVAL_SECONDS,
+    get_file=None,
+    label: str = "",
+):
+    """Poll ``client.files.get`` until the file leaves PROCESSING.
+
+    Returns the latest file object (ACTIVE, FAILED or any other final state).
+    Raises :class:`GeminiFileProcessingTimeout` once ``timeout_seconds`` elapse
+    (``None`` reads the configured default; 0 waits forever). ``get_file`` lets
+    callers wrap the status request with their own retry policy.
+    """
+    limit = gemini_file_processing_timeout() if timeout_seconds is None else max(0.0, float(timeout_seconds))
+    fetch = get_file or (lambda name: client.files.get(name=name))
+    name = getattr(uploaded_file, "name", "")
+    started = time.monotonic()
+    while True:
+        uploaded_file = fetch(name)
+        state = getattr(getattr(uploaded_file, "state", None), "name", None)
+        if state != "PROCESSING":
+            return uploaded_file
+        elapsed = time.monotonic() - started
+        if limit and elapsed >= limit:
+            raise GeminiFileProcessingTimeout(
+                f"Gemini File API: '{label or name}' was still PROCESSING after {elapsed:.0f}s "
+                f"(limit {limit:.0f}s, set GEMINI_FILE_PROCESSING_TIMEOUT to change it)."
+            )
+        logger.info(f"Video is processing on Gemini servers ({label or name})... waiting {poll_interval:g} seconds")
+        time.sleep(poll_interval)
 
 
 class LLMClient:
@@ -75,8 +168,9 @@ class LLMClient:
 
         try:
             from google import genai
-            # Initialize Client. It automatically loads API key or reads GEMINI_API_KEY from environment
-            self._client = genai.Client(api_key=api_key)
+            # Initialize Client. It automatically loads API key or reads GEMINI_API_KEY from environment.
+            # A per-request HTTP timeout avoids hanging forever on a dead connection.
+            self._client = create_genai_client(genai, api_key)
         except ImportError:
             raise LLMError(
                 "The 'google-genai' package is not installed. "
@@ -139,31 +233,28 @@ class LLMClient:
             except Exception as e:
                 raise LLMError(f"Unexpected upload error: {e}") from e
 
-        # Step 2: Poll file processing state until active with retry logic
+        # Step 2: Poll file processing state until active with retry logic,
+        # bounded by GEMINI_FILE_PROCESSING_TIMEOUT_SECONDS.
+        def get_file_with_retry(name):
+            # Get the state with retry
+            for attempt in range(self.max_retries):
+                try:
+                    return self._client.files.get(name=name)
+                except errors.APIError as e:
+                    status_code = getattr(e, "code", None)
+                    if status_code in (429, 503, 500) and attempt < self.max_retries - 1:
+                        wait_time = self.retry_delay * (2 ** attempt)
+                        logger.warning(f"Gemini polling temporary error (Code {status_code}). Retrying in {wait_time:.1f}s...")
+                        time.sleep(wait_time)
+                    else:
+                        raise
+
         try:
-            while True:
-                state_name = None
-                # Get the state with retry
-                for attempt in range(self.max_retries):
-                    try:
-                        uploaded_file = self._client.files.get(name=uploaded_file.name)
-                        state_name = uploaded_file.state.name
-                        break
-                    except errors.APIError as e:
-                        status_code = getattr(e, "code", None)
-                        if status_code in (429, 503, 500) and attempt < self.max_retries - 1:
-                            wait_time = self.retry_delay * (2 ** attempt)
-                            logger.warning(f"Gemini polling temporary error (Code {status_code}). Retrying in {wait_time:.1f}s...")
-                            time.sleep(wait_time)
-                        else:
-                            raise
-                
-                if state_name != "PROCESSING":
-                    break
-                
-                logger.info("Video is processing on Gemini servers... waiting 5 seconds")
-                time.sleep(5)
-            
+            uploaded_file = wait_for_gemini_file_active(
+                self._client, uploaded_file, get_file=get_file_with_retry, label=video_path.name,
+            )
+            state_name = uploaded_file.state.name
+
             if state_name == "FAILED":
                 raise LLMError(f"Gemini video processing failed: {uploaded_file.error.message}")
             
@@ -175,6 +266,8 @@ class LLMClient:
                     self._client.files.delete(name=uploaded_file.name)
                 except:
                     pass
+            if isinstance(e, GeminiFileProcessingTimeout):
+                raise
             raise LLMError(f"Error during video processing/polling: {e}") from e
 
         # Step 3: Call the model
